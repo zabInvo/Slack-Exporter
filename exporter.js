@@ -1,7 +1,8 @@
+require("dotenv").config({ path: ".env" });
 
-require("dotenv").config();
-const slack = require("@slack/web-api").WebClient;
-const web = new slack();
+const { WebClient } = require("@slack/web-api");
+const web = new WebClient(process.env.SLACK_USER_TOKEN);
+console.log(process.env.SLACK_USER_TOKEN, "here");
 
 // Find conversation ID using the conversations.list method
 const findConversation = async (req, res) => {
@@ -52,7 +53,12 @@ const fetchConversationHistroy = async (req, res) => {
   }
 };
 
+const slackMessageEv = async (ev) => {
+  console.log(ev);
+};
+
 module.exports = {
   findConversation,
-  fetchConversationHistroy
+  fetchConversationHistroy,
+  slackMessageEv,
 };
