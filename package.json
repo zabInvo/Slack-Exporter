@@ -1,0 +1,26 @@
+{
+  "name": "slack-exporter",
+  "version": "1.0.0",
+  "description": "Export publicly visible channel data as text or JSON.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zabInvo/Slack-Exporter.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zabInvo/Slack-Exporter/issues"
+  },
+  "homepage": "https://github.com/zabInvo/Slack-Exporter#readme",
+  "dependencies": {
+    "@slack/web-api": "^6.7.2",
+    "axios": "^0.27.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.2",
+    "express": "^4.18.1"
+  }
+}
