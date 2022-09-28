@@ -1,30 +1,17 @@
-require("dotenv").config({ path: ".env" });
+require("dotenv").config();
 
 const { WebClient } = require("@slack/web-api");
-const web = new WebClient(process.env.SLACK_USER_TOKEN);
-console.log(process.env.SLACK_USER_TOKEN, "here");
+const token = process.env.SLACK_USER_TOKEN
+const web = new WebClient(token);
 
 // Find conversation ID using the conversations.list method
-const findConversation = async (req, res) => {
+const findChannels = async (req, res) => {
   try {
-    const name = req.query.channel;
+    const type = req.query.type;
     // Call the conversations.list method using the built-in WebClient
     const result = await web.conversations.list({
-      token: process.env.SLACK_USER_TOKEN,
-      types: "private_channel",
-      // types: "public_channel,private_channel,mpim,im",
+      types: type,
     });
-
-    for (const channel of result.channels) {
-      if (channel.name === name) {
-        conversationId = channel.id;
-
-        // Print result
-        console.log("Found conversation ID: " + conversationId);
-        // Break from for loop
-        break;
-      }
-    }
     res.status(200).json({ data: result });
   } catch (error) {
     console.error(error);
@@ -58,7 +45,7 @@ const slackMessageEv = async (ev) => {
 };
 
 module.exports = {
-  findConversation,
+  findChannels,
   fetchConversationHistroy,
   slackMessageEv,
 };

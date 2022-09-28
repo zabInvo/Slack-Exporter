@@ -1,18 +1,15 @@
 // Server Setup.
+require("dotenv").config();
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const { createEventAdapter } = require("@slack/events-api");
 const port = process.env.PORT || 8080;
 
-// Environment Variables.
-require("dotenv").config({ path: ".env" });
 const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
-
-// Slack Essentials.
-const { createEventAdapter } = require("@slack/events-api");
 const slackEvents = createEventAdapter(slackSigningSecret);
 
-const findConversation = require("./exporter").findConversation;
+const findChannels = require("./exporter").findChannels;
 const fetchConversationHistroy = require("./exporter").fetchConversationHistroy;
 const slackMessageEv = require("./exporter").slackMessageEv;
 
@@ -29,7 +26,7 @@ app.get("/", (req, res) => {
   res.send("You land on a wrong planet, no one lives here.");
 });
 
-app.get("/fetch-groups", findConversation);
+app.get("/fetch-groups", findChannels);
 app.get("/histroy", fetchConversationHistroy);
 
 // Slack Message Listener.
