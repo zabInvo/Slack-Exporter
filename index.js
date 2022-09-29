@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const bodyParser = require('body-parser'); 
 const { createEventAdapter } = require("@slack/events-api");
 const port = process.env.PORT || 8080;
 
@@ -13,21 +14,20 @@ const findChannels = require("./exporter").findChannels;
 const fetchConversationHistroy = require("./exporter").fetchConversationHistroy;
 const slackMessageEv = require("./exporter").slackMessageEv;
 
+
+app.use(cors({ origin: "*",}));
+
+app.use(bodyParser.json());
+
 // Plug the adapter in as a middleware
 app.use("/slack/events", slackEvents.requestListener());
-
-app.use(
-  cors({
-    origin: "*",
-  })
-);
 
 app.get("/", (req, res) => {
   res.send("You land on a wrong planet, no one lives here.");
 });
 
-app.get("/fetch-groups", findChannels);
-app.get("/histroy", fetchConversationHistroy);
+app.post("/api/fetch-groups", findChannels);
+app.post("/api/histroy", fetchConversationHistroy);
 
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
