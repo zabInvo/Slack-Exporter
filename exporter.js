@@ -8,7 +8,6 @@ const web = new WebClient(token);
 const findChannels = async (req, res) => {
   try {
     const type = req.body.type;
-    // Call the conversations.list method using the built-in WebClient
     const result = await web.conversations.list({
       types: type,
     });
@@ -20,10 +19,9 @@ const findChannels = async (req, res) => {
 
 const fetchConversationHistroy = async (req, res) => {
   try {
-    const channelId = req.query.channelId;
-    // Store conversation history
+    const channelId = req.body.channelId;
+    console.log('channelId',req.body);
     let conversationHistory;
-    // Call the conversations.history method using WebClient
     const result = await web.conversations.history({
       channel: channelId,
       limit: 100
@@ -31,13 +29,53 @@ const fetchConversationHistroy = async (req, res) => {
 
     conversationHistory = result.messages;
 
-    // Print results
     console.log(conversationHistory.length + " messages found in " + channelId);
     res.status(200).json({ data: conversationHistory });
   } catch (error) {
     console.error(error);
   }
 };
+
+const fetchMessageThread = async (req, res) =>{
+  try {
+    const channelId = req.body.channelId;
+    const messageId = req.body.messageId;
+    const result = await web.conversations.replies({
+      channel: channelId,
+      ts: messageId,
+    });
+    message = result.messages;
+    console.log(message.text);
+    res.status(200).json({ data: message });
+  }
+  catch (error) {
+    console.error(error);
+  }
+}
+
+
+const fetchMessageWithTreads = async (req, res) =>{
+  try {
+    const channelId = req.body.channelId;
+    const result = await web.conversations.history({
+      channel: channelId,
+      limit: 1000
+    });
+    let repliesIds = []
+    message = result.messages;
+    await message.forEach(item => {
+      if(item.reply_count >= 1)
+      {
+        repliesIds.push(item.thread_ts);
+      }
+    });
+  
+    res.status(200).json({ data: message , repliesIds: repliesIds });
+  }
+  catch (error) {
+    console.error(error);
+  }
+}
 
 const slackMessageEv = async (ev) => {
   console.log(ev);
@@ -46,5 +84,7 @@ const slackMessageEv = async (ev) => {
 module.exports = {
   findChannels,
   fetchConversationHistroy,
+  fetchMessageThread,
+  fetchMessageWithTreads,
   slackMessageEv,
 };
