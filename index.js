@@ -13,7 +13,7 @@ const slackEvents = createEventAdapter(slackSigningSecret);
 const findChannels = require("./exporter").findChannels;
 const fetchConversationHistroy = require("./exporter").fetchConversationHistroy;
 const fetchMessageThread = require("./exporter").fetchMessageThread;
-const fetchMessageWithTreads = require("./exporter").fetchMessageWithTreads;
+const fetchAllMessageWithTreads = require("./exporter").fetchAllMessageWithTreads;
 const slackMessageEv = require("./exporter").slackMessageEv;
 
 
@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 app.post("/api/fetch-groups", findChannels);
 app.post("/api/histroy", fetchConversationHistroy);
 app.post("/api/fetch-message-thread", fetchMessageThread);
-app.post("/api/fetch-message-with-thread", fetchMessageWithTreads);
+app.post("/api/fetch-all-message-with-threads", fetchAllMessageWithTreads);
 
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
