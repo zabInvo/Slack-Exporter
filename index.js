@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 const cors = require("cors");
-const bodyParser = require('body-parser'); 
+const bodyParser = require("body-parser");
 const { createEventAdapter } = require("@slack/events-api");
 const port = process.env.PORT || 8080;
 
@@ -13,11 +13,13 @@ const slackEvents = createEventAdapter(slackSigningSecret);
 const findChannels = require("./exporter").findChannels;
 const fetchConversationHistroy = require("./exporter").fetchConversationHistroy;
 const fetchMessageThread = require("./exporter").fetchMessageThread;
-const fetchAllMessageWithTreads = require("./exporter").fetchAllMessageWithTreads;
+const fetchAllMessageWithTreads =
+  require("./exporter").fetchAllMessageWithTreads;
 const slackMessageEv = require("./exporter").slackMessageEv;
+const fetchRecoveryData = require("./exporter").fetchRecoveryData;
+const continueRecoveryData = require("./exporter").continueRecoveryData;
 
-
-app.use(cors({ origin: "*",}));
+app.use(cors({ origin: "*" }));
 
 app.use(bodyParser.json());
 
@@ -32,6 +34,11 @@ app.post("/api/fetch-groups", findChannels);
 app.post("/api/histroy", fetchConversationHistroy);
 app.post("/api/fetch-message-thread", fetchMessageThread);
 app.post("/api/fetch-all-message-with-threads", fetchAllMessageWithTreads);
+app.post("/api/fetch-all-message-with-threads/recovery", fetchRecoveryData);
+app.post(
+  "/api/fetch-all-message-with-threads/continue-recovery",
+  continueRecoveryData
+);
 
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
