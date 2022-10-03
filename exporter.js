@@ -62,17 +62,18 @@ const fetchAllMessageWithTreads = async (req, res) => {
   try {
     // Extract the channel id.
     const channelId = req.body.channelId;
+    const limit = req.body.limit || 100;
     // Complete messages being stored into an array.
     let allMessages = [];
     // Complete replies being stored into an array.
     let allReplies = [];
     // Cursor changes overtime as new requests update it.
-    let cursor = null;
+    let cursor = req.body.cursor || null;
     const response = await getCompleteMessageHistroy(
       allMessages,
       allReplies,
       channelId,
-      100,
+      limit,
       cursor
     );
     res.status(200).json({ messages: allMessages, replies: allReplies });
@@ -93,7 +94,7 @@ const getCompleteMessageHistroy = async (
   let result = await web.conversations.history({
     channel: channelId,
     limit: limit,
-    cursor: cursor,
+    cursor: cursor
   });
 
   // Push all messages into main message array
@@ -128,7 +129,7 @@ const getCompleteMessageHistroy = async (
       allMessages,
       allReplies,
       channelId,
-      100,
+      limit,
       cursor
     );
   }
