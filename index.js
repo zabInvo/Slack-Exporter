@@ -7,6 +7,13 @@ const bodyParser = require('body-parser');
 const { createEventAdapter } = require("@slack/events-api");
 const port = process.env.PORT || 8080;
 
+
+// For Locally use of https cert instead of http
+const fs = require("fs");
+const https = require("https");
+const key = fs.readFileSync("localhost-key.pem", "utf-8");
+const cert = fs.readFileSync("localhost.pem", "utf-8");
+
 const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
 const slackEvents = createEventAdapter(slackSigningSecret);
 
@@ -36,8 +43,12 @@ app.post("/api/fetch-all-message-with-threads", fetchAllMessageWithTreads);
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
 
-app.listen(port, () => {
-  console.log(`App is listening at http://localhost:${port}`);
+https.createServer({ key, cert }, app).listen(port, () => {
+    console.log(`App is listening at https://localhost:${port}`);
 });
+
+// app.listen(port, () => {
+//     console.log(`App is listening at http://localhost:${port}`);
+// });
 
 module.exports = app;

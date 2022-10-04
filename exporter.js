@@ -4,6 +4,8 @@ const { WebClient } = require("@slack/web-api");
 const token = process.env.SLACK_USER_TOKEN;
 const web = new WebClient(token);
 
+const slackChannelsModel = require("./models").SlackChannel;
+
 // Find conversation ID using the conversations.list method
 const findChannels = async (req, res) => {
   try {
@@ -11,16 +13,51 @@ const findChannels = async (req, res) => {
     const result = await web.conversations.list({
       types: type,
     });
-    res.status(200).json({ data: result.channels });
+    const channels = result.channels;
+    for (let i = 0; i < channels.length; i++) {
+      const channelExist = await slackChannelsModel.findOne({
+        where: {
+          slackId: channels[i].id,
+        },
+      });
+      if (!channelExist) {
+        const payload = {
+          name: channels[i].name,
+          slackId: channels[i].id,
+          type: type,
+          membersCount: channels[i].num_members,
+          creationDate : channels[i].created,
+        };
+        await slackChannelsModel.create(payload);
+      }
+    }
+    const allChannels = await slackChannelsModel.findAll({
+      where: {
+        type: type,
+      },
+      attributes: [
+        "name",
+        "slackId",
+        "mattermostName",
+        "mattermostId",
+        "lastUpdatedAt",
+        "lastCursor",
+        "forwardUrl",
+        "type",
+        "membersCount",
+        "creationDate"
+      ],
+    });
+    res.status(200).json({ data: allChannels });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
   }
 };
 
 const fetchConversationHistroy = async (req, res) => {
   try {
     const channelId = req.body.channelId;
-    console.log("channelId", req.body);
     let conversationHistory;
     const result = await web.conversations.history({
       channel: channelId,
@@ -33,6 +70,7 @@ const fetchConversationHistroy = async (req, res) => {
     res.status(200).json({ data: conversationHistory });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
   }
 };
 
@@ -45,10 +83,10 @@ const fetchMessageThread = async (req, res) => {
       ts: messageId,
     });
     message = result.messages;
-    console.log(message.text);
     res.status(200).json({ data: message });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
   }
 };
 
@@ -69,13 +107,21 @@ const fetchAllMessageWithTreads = async (req, res) => {
     let allReplies = [];
     // Cursor changes overtime as new requests update it.
     let cursor = req.body.cursor || null;
+    const channelRecord = await slackChannelsModel.findOne({
+      where: {
+        slackId: req.body.channelId,
+      },
+    });
     const response = await getCompleteMessageHistroy(
       allMessages,
       allReplies,
       channelId,
       limit,
-      cursor
+      cursor,
+      channelRecord
     );
+    const date = new Date();
+    await channelRecord.update({ lastUpdatedAt: date });
     res.status(200).json({ messages: allMessages, replies: allReplies });
   } catch (error) {
     console.error(error);
@@ -88,13 +134,14 @@ const getCompleteMessageHistroy = async (
   allReplies,
   channelId,
   limit,
-  cursor
+  cursor,
+  channelRecord
 ) => {
   // fetchConversationHistroy
   let result = await web.conversations.history({
     channel: channelId,
     limit: limit,
-    cursor: cursor
+    cursor: cursor,
   });
 
   // Push all messages into main message array
@@ -125,12 +172,16 @@ const getCompleteMessageHistroy = async (
   // if more data exists then update cursor and re-calls the function, else return
   if (result.has_more === true) {
     cursor = result.response_metadata.next_cursor;
+    if (channelRecord) {
+      await channelRecord.update({ lastCursor: cursor });
+    }
     await getCompleteMessageHistroy(
       allMessages,
       allReplies,
       channelId,
       limit,
-      cursor
+      cursor,
+      channelRecord
     );
   }
   return result;
