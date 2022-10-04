@@ -94,7 +94,7 @@ const getCompleteMessageHistroy = async (
   let result = await web.conversations.history({
     channel: channelId,
     limit: limit,
-    cursor: cursor
+    cursor: cursor,
   });
 
   // Push all messages into main message array
