@@ -14,6 +14,13 @@ const key = fs.readFileSync("./key.pem");
 const cert = fs.readFileSync("./cert.pem");
 const https = require("https");
 
+
+// For Locally use of https cert instead of http
+const fs = require("fs");
+const https = require("https");
+const key = fs.readFileSync("localhost-key.pem", "utf-8");
+const cert = fs.readFileSync("localhost.pem", "utf-8");
+
 const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
 const slackEvents = createEventAdapter(slackSigningSecret);
 require("./auth/passport");
@@ -87,10 +94,12 @@ app.get("/api/logout", (req, res) => {
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
 
-const server = https.createServer({ key: key, cert: cert }, app);
-
-server.listen(port, () => {
-  console.log(`App is listening at https://localhost:${port}`);
+https.createServer({ key, cert }, app).listen(port, () => {
+    console.log(`App is listening at https://localhost:${port}`);
 });
+
+// app.listen(port, () => {
+//     console.log(`App is listening at http://localhost:${port}`);
+// });
 
 module.exports = app;
