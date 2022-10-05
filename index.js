@@ -9,11 +9,6 @@ const cookieSession = require("cookie-session");
 const passport = require("passport");
 const e = require("express");
 const port = process.env.PORT || 8080;
-const fs = require("fs");
-const key = fs.readFileSync("./key.pem");
-const cert = fs.readFileSync("./cert.pem");
-const https = require("https");
-
 
 // For Locally use of https cert instead of http
 const fs = require("fs");
@@ -95,11 +90,7 @@ app.get("/api/logout", (req, res) => {
 slackEvents.on("message", slackMessageEv);
 
 https.createServer({ key, cert }, app).listen(port, () => {
-    console.log(`App is listening at https://localhost:${port}`);
+  console.log(`App is listening at https://localhost:${port}`);
 });
-
-// app.listen(port, () => {
-//     console.log(`App is listening at http://localhost:${port}`);
-// });
 
 module.exports = app;
