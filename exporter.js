@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const { WebClient } = require("@slack/web-api");
+
 const token = process.env.SLACK_USER_TOKEN;
 const web = new WebClient(token);
 
@@ -46,7 +47,7 @@ const findChannels = async (req, res) => {
         "type",
         "membersCount",
         "creationDate",
-        "status"
+        "status",
       ],
     });
     res.status(200).json({ data: allChannels });
@@ -205,6 +206,23 @@ const getCompleteMessageHistroy = async (
   return result;
 };
 
+const updateMapping = async (req, res) => {
+  try {
+    const record = await slackChannelsModel.findOne({
+      where: { slackId: req.body.id },
+    });
+    if (record) {
+      await record.update({
+        mattermostName: req.body.mattermostName,
+        forwardUrl: req.body.forwardUrl,
+      });
+      res.sendStatus(200);
+    }
+  } catch (error) {
+    res.send(error);
+  }
+};
+
 const slackMessageEv = async (ev) => {
   console.log(ev);
 };
@@ -216,4 +234,5 @@ module.exports = {
   fetchAllMessageWithTreads,
   slackMessageEv,
   syncHistroy,
+  updateMapping,
 };
