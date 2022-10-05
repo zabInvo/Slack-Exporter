@@ -9,6 +9,10 @@ const cookieSession = require("cookie-session");
 const passport = require("passport");
 const e = require("express");
 const port = process.env.PORT || 8080;
+const fs = require("fs");
+const key = fs.readFileSync("./key.pem");
+const cert = fs.readFileSync("./cert.pem");
+const https = require("https");
 
 const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
 const slackEvents = createEventAdapter(slackSigningSecret);
@@ -26,8 +30,8 @@ app.use(
     name: "session",
     keys: [process.env.SESSION_KEY],
     maxAge: 24 * 60 * 60 * 100,
-    // sameSite: false,
-    // secure: true,
+    sameSite: false,
+    secure: true,
   })
 );
 
@@ -38,9 +42,9 @@ app.use(bodyParser.json());
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: "https://localhost:3000",
     methods: "GET, POST, PUT, DELETE",
-    // credentials: true,
+    credentials: true,
   })
 );
 
@@ -61,14 +65,14 @@ app.get("/auth/slack", passport.authorize("Slack"));
 app.get(
   "/auth/slack/callback",
   passport.authenticate("Slack", {
-    successRedirect: "http://localhost:3000/public",
+    successRedirect: "https://localhost:3000/public",
     failureRedirect: "/login/failed",
   })
 );
 
 app.get("/api/login/success", (req, res) => {
   if (req.user) {
-    res.status(200).json({ user: req.user, cookies: req.cookies });
+    res.status(200).json({ user: req.user });
   } else res.send("no user data found, please repeat the login process..");
 });
 app.get("/api/login/failed", (req, res) => {
@@ -77,14 +81,16 @@ app.get("/api/login/failed", (req, res) => {
 
 app.get("/api/logout", (req, res) => {
   req.logout();
-  res.redirect("http://localhost:3000/login");
+  res.redirect("https://localhost:3000/login");
 });
 
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
 
-app.listen(port, () => {
-  console.log(`App is listening at http://localhost:${port}`);
+const server = https.createServer({ key: key, cert: cert }, app);
+
+server.listen(port, () => {
+  console.log(`App is listening at https://localhost:${port}`);
 });
 
 module.exports = app;
