@@ -90,6 +90,16 @@ const fetchMessageThread = async (req, res) => {
   }
 };
 
+const syncHistroy = async (req, res) => {
+  try {
+    fetchAllMessageWithTreads(req);
+    res.status(200).json({ data: "Syncing start successfully!" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
+  }
+};
+
 const fetchAllMessageWithTreads = async (req, res) => {
   /*
    1. request via web.conversations.history without any cursor
@@ -121,8 +131,9 @@ const fetchAllMessageWithTreads = async (req, res) => {
       channelRecord
     );
     const date = new Date();
-    await channelRecord.update({ lastUpdatedAt: date });
-    res.status(200).json({ messages: allMessages, replies: allReplies });
+    await channelRecord.update({ lastUpdatedAt: date , status: 'Completed' });
+    return;
+    // res.status(200).json({ messages: allMessages, replies: allReplies });
   } catch (error) {
     console.error(error);
     res.status(500).json({ messages: "Internal Server Error", error: error });
@@ -197,4 +208,5 @@ module.exports = {
   fetchMessageThread,
   fetchAllMessageWithTreads,
   slackMessageEv,
+  syncHistroy
 };

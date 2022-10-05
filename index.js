@@ -20,6 +20,7 @@ const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
 const slackEvents = createEventAdapter(slackSigningSecret);
 require("./auth/passport");
 
+const syncHistroy = require("./exporter").syncHistroy;
 const findChannels = require("./exporter").findChannels;
 const fetchConversationHistroy = require("./exporter").fetchConversationHistroy;
 const fetchMessageThread = require("./exporter").fetchMessageThread;
@@ -57,6 +58,7 @@ app.get("/", (req, res) => {
   res.send("You land on a wrong planet, no one lives here.");
 });
 
+app.post("/api/sync-histroy", syncHistroy);
 app.post("/api/fetch-groups", findChannels);
 app.post("/api/histroy", fetchConversationHistroy);
 app.post("/api/fetch-message-thread", fetchMessageThread);

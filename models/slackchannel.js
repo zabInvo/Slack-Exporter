@@ -24,6 +24,7 @@ module.exports = (sequelize, DataTypes) => {
     membersCount : DataTypes.STRING,
     creationDate : DataTypes.STRING,
     lastUpdatedAt : DataTypes.DATE,
+    status : DataTypes.STRING
   }, {
     sequelize,
     modelName: 'SlackChannel',
