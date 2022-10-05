@@ -26,7 +26,7 @@ const findChannels = async (req, res) => {
           slackId: channels[i].id,
           type: type,
           membersCount: channels[i].num_members,
-          creationDate : channels[i].created,
+          creationDate: channels[i].created,
         };
         await slackChannelsModel.create(payload);
       }
@@ -45,7 +45,8 @@ const findChannels = async (req, res) => {
         "forwardUrl",
         "type",
         "membersCount",
-        "creationDate"
+        "creationDate",
+        "status"
       ],
     });
     res.status(200).json({ data: allChannels });
@@ -92,6 +93,12 @@ const fetchMessageThread = async (req, res) => {
 
 const syncHistroy = async (req, res) => {
   try {
+    const channelRecord = await slackChannelsModel.findOne({
+      where: {
+        slackId: req.body.channelId,
+      },
+    });
+    await channelRecord.update({ status: "Pending" });
     fetchAllMessageWithTreads(req);
     res.status(200).json({ data: "Syncing start successfully!" });
   } catch (error) {
@@ -131,7 +138,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
       channelRecord
     );
     const date = new Date();
-    await channelRecord.update({ lastUpdatedAt: date , status: 'Completed' });
+    await channelRecord.update({ lastUpdatedAt: date, status: "Completed" });
     return;
     // res.status(200).json({ messages: allMessages, replies: allReplies });
   } catch (error) {
@@ -208,5 +215,5 @@ module.exports = {
   fetchMessageThread,
   fetchAllMessageWithTreads,
   slackMessageEv,
-  syncHistroy
+  syncHistroy,
 };

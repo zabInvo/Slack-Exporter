@@ -79,6 +79,7 @@ app.get("/api/login/success", (req, res) => {
     res.status(200).json({ user: req.user });
   } else res.send("no user data found, please repeat the login process..");
 });
+
 app.get("/api/login/failed", (req, res) => {
   res.status(401);
 });
