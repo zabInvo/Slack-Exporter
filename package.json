@@ -4,7 +4,8 @@
   "description": "Export publicly visible channel data as text or JSON.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon index.js",
+    "start": "nodemon index.js"
   },
   "repository": {
     "type": "git",
@@ -28,6 +29,7 @@
     "passport": "^0.5.3",
     "passport-slack-oauth2": "^1.1.1",
     "pg": "^8.8.0",
-    "sequelize": "^6.23.2"
+    "sequelize": "^6.23.2",
+    "socket.io": "^4.5.2"
   }
 }

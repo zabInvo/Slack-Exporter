@@ -1,5 +1,4 @@
 require("dotenv").config();
-
 const { WebClient } = require("@slack/web-api");
 
 const token = process.env.SLACK_USER_TOKEN;
@@ -140,8 +139,138 @@ const fetchAllMessageWithTreads = async (req, res) => {
     );
     const date = new Date();
     await channelRecord.update({ lastUpdatedAt: date, status: "Completed" });
-    return;
-    // res.status(200).json({ messages: allMessages, replies: allReplies });
+    res.status(200).json({ messages: allMessages, replies: allReplies });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
+  }
+};
+
+const fetchAllMessageInfo = async (req, res) => {
+  try {
+    // Extract the channel id.
+    const channelId = req.body.channelId;
+    const week = req.body.week;
+    const limit = req.body.limit || 100;
+    // Complete messages being stored into an array.
+    let allMessages = [];
+    // Complete replies being stored into an array.
+    let allReplies = [];
+    // Cursor changes overtime as new requests update it.
+    let cursor = req.body.cursor || null;
+    const channelRecord = await slackChannelsModel.findOne({
+      where: {
+        slackId: channelId,
+      },
+    });
+    await getCompleteMessageHistroy(
+      allMessages,
+      allReplies,
+      channelId,
+      limit,
+      cursor,
+      channelRecord
+    );
+
+    // Call all messages and sort by incoming date.
+    const messages = new Array();
+    const images = new Array();
+    const videos = new Array();
+    allMessages.map((message) => {
+      const milliseconds = Number(message.ts.split(".")[0]) * 1000; // 1575909015000
+      const dateObject = new Date(milliseconds);
+      dateObject.toLocaleString("en-US", { weekday: "long" }); // Monday
+      dateObject.toLocaleString("en-US", { month: "long" }); // December
+      dateObject.toLocaleString("en-US", { day: "numeric" }); // 9
+      dateObject.toLocaleString("en-US", { year: "numeric" }); // 2019
+      dateObject.toLocaleString("en-US", { hour: "numeric" }); // 10 AM
+      dateObject.toLocaleString("en-US", { minute: "numeric" }); // 30
+      dateObject.toLocaleString("en-US", { second: "numeric" }); // 15
+      dateObject.toLocaleString("en-US", { timeZoneName: "short" }); // 12/9/2019, 10:30:15 AM CST
+      const humanDateFormat = dateObject.toLocaleString(); //2019-12-9 10:30:15
+      if (!message.files) {
+        messages.unshift(new Date(humanDateFormat).toString().slice(0, 10)); // (Thu Oct 6)
+      } else if (
+        message.type === "message" &&
+        message.files &&
+        message.files[0].mimetype.slice(0, 5) === "image"
+      ) {
+        images.unshift(new Date(humanDateFormat).toString().slice(0, 10)); // (Thu Oct 6)
+      } else if (
+        message.type === "message" &&
+        message.files &&
+        message.files[0].mimetype.slice(0, 5) === "video"
+      ) {
+        videos.unshift(new Date(humanDateFormat).toString().slice(0, 10)); // (Thu Oct 6)
+      }
+    });
+
+    // timestamps = all the time from chat messages (slack)
+    // week = data coming of the current week from front end (react)
+    week.date.map((date, ix) => {
+      messages.map((time, idx) => {
+        if (date === time) {
+          console.log("true");
+          week.messages[ix] += 1;
+        }
+      });
+      videos.map((time, idx) => {
+        if (date === time) {
+          console.log("true");
+          week.videos[ix] += 1;
+        }
+      });
+      images.map((time, idx) => {
+        if (date === time) {
+          console.log("true");
+          week.images[ix] += 1;
+        }
+      });
+    });
+
+    console.log({
+      messages: allMessages.length,
+      total: {
+        images: allMessages.filter(
+          (message) =>
+            message.type === "message" &&
+            message.files &&
+            message.files[0].mimetype.slice(0, 5) === "image"
+        ).length,
+        messages: allMessages.filter(
+          (message) => message.type === "message" && !message.files
+        ).length,
+        videos: allMessages.filter(
+          (message) =>
+            message.type === "message" &&
+            message.files &&
+            message.files[0].mimetype.slice(0, 5) === "video"
+        ).length,
+      },
+      week,
+    });
+
+    res.status(200).json({
+      messages: allMessages.length,
+      total: {
+        images: allMessages.filter(
+          (message) =>
+            message.type === "message" &&
+            message.files &&
+            message.files[0].mimetype.slice(0, 5) === "image"
+        ).length,
+        messages: allMessages.filter(
+          (message) => message.type === "message" && !message.files
+        ).length,
+        videos: allMessages.filter(
+          (message) =>
+            message.type === "message" &&
+            message.files &&
+            message.files[0].mimetype.slice(0, 5) === "video"
+        ).length,
+      },
+      week,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ messages: "Internal Server Error", error: error });
@@ -223,8 +352,14 @@ const updateMapping = async (req, res) => {
   }
 };
 
-const slackMessageEv = async (ev) => {
-  console.log(ev);
+const slackMessageEv = async (ev) => {};
+
+const fetchUserById = async (req, res) => {
+  const userId = req.body.userId;
+  const token = req.body.userId;
+  const data = await web.users.info({ token, user: userId });
+
+  console.log(data);
 };
 
 module.exports = {
@@ -232,7 +367,9 @@ module.exports = {
   fetchConversationHistroy,
   fetchMessageThread,
   fetchAllMessageWithTreads,
+  fetchAllMessageInfo,
   slackMessageEv,
   syncHistroy,
+  fetchUserById,
   updateMapping,
 };

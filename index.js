@@ -27,6 +27,8 @@ const fetchAllMessageWithTreads =
   require("./exporter").fetchAllMessageWithTreads;
 const slackMessageEv = require("./exporter").slackMessageEv;
 const updateMapping = require("./exporter").updateMapping;
+const fetchAllMessageInfo = require("./exporter").fetchAllMessageInfo;
+const fetchUserById = require("./exporter").fetchUserById;
 
 app.use(
   cookieSession({
@@ -67,11 +69,27 @@ app.post("/api/fetch-groups", Auth, findChannels);
 app.post("/api/update-mapping", Auth, updateMapping);
 app.post("/api/histroy", Auth, fetchConversationHistroy);
 app.post("/api/fetch-message-thread", Auth, fetchMessageThread);
+app.post("/api/fetch-all-message-info", Auth, fetchAllMessageInfo);
 app.post(
   "/api/fetch-all-message-with-threads",
   Auth,
   fetchAllMessageWithTreads
 );
+app.post(
+  "/api/fetch-all-message-with-threads",
+  Auth,
+  fetchAllMessageWithTreads
+);
+app.post("/api/fetch-user-by-id", Auth, fetchUserById);
+
+// No auth routes for testing.
+app.post("/no-auth-api/fetch-groups", findChannels);
+app.post("/no-auth-api/fetch-message-thread", fetchMessageThread);
+app.post(
+  "/no-auth-api/fetch-all-message-with-threads",
+  fetchAllMessageWithTreads
+);
+app.post("/no-auth-api/fetch-all-message-info", fetchAllMessageInfo);
 
 // Authentication Routes
 app.get("/auth/slack", passport.authorize("Slack"));

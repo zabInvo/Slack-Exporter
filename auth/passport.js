@@ -2,6 +2,8 @@ const passport = require("passport");
 require("dotenv").config({ path: "../.env" });
 const SlackStrategy = require("passport-slack-oauth2").Strategy;
 
+console.log(process.env.SLACK_CLIENT_ID);
+
 passport.use(
   new SlackStrategy(
     {
