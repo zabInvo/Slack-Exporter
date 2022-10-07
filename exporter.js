@@ -139,6 +139,12 @@ const fetchAllMessageWithTreads = async (req, res) => {
     );
     const date = new Date();
     await channelRecord.update({ lastUpdatedAt: date, status: "Completed" });
+    const socketPayload = {
+      lastUpdatedAt : date,
+      channelId : channelId
+    }
+    const io = req.app.get('socketio');
+    io.emit("lastUpdated", socketPayload);
     return;
     // res.status(200).json({ messages: allMessages, replies: allReplies });
   } catch (error) {

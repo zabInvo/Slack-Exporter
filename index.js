@@ -7,7 +7,7 @@ const bodyParser = require("body-parser");
 const { createEventAdapter } = require("@slack/events-api");
 const cookieSession = require("cookie-session");
 const passport = require("passport");
-const e = require("express");
+const socketIo = require("socket.io");
 const port = process.env.PORT || 8080;
 
 // For Locally use of https cert instead of http
@@ -27,6 +27,9 @@ const fetchMessageThread = require("./exporter").fetchMessageThread;
 const fetchAllMessageWithTreads =
   require("./exporter").fetchAllMessageWithTreads;
 const slackMessageEv = require("./exporter").slackMessageEv;
+
+
+const server = https.createServer({ key, cert }, app);
 
 app.use(
   cookieSession({
@@ -92,7 +95,28 @@ app.get("/api/logout", (req, res) => {
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
 
-https.createServer({ key, cert }, app).listen(port, () => {
+// Socket.io Configuration 
+const io = socketIo(server, {
+  cors: {
+    origin: "https://localhost:3000",
+    methods: "GET, POST, PUT, DELETE",
+    credentials: true,
+  },
+});
+
+// Connection between client and server 
+io.on("connection", (socket) => {
+  console.log("New Client Connected : ", socket.id);
+  socket.emit("Connect", socket.id);
+
+  socket.on("disconnect", (socket) => {
+    console.log("Client disconnected", socket.id);
+  });
+});
+
+app.set('socketio', io);
+
+server.listen(port, () => {
   console.log(`App is listening at https://localhost:${port}`);
 });
 
