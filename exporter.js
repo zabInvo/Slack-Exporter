@@ -4,6 +4,10 @@ const axios = require("axios");
 const https = require("https");
 const fs = require("fs");
 const FormData = require("form-data");
+const { off } = require("process");
+
+const BASEURL = "https://source-im.invo.zone";
+const ACCESSTOKEN = "huokuoz633yupcqi9zti4ywdna";
 
 const token = process.env.SLACK_USER_TOKEN;
 const web = new WebClient(token);
@@ -361,9 +365,9 @@ const getCompleteMessageHistroy = async (
   // if more data exists then update cursor and re-calls the function, else return
   if (result.has_more === true) {
     cursor = result.response_metadata.next_cursor;
-    if (channelRecord) {
-      await channelRecord.update({ lastCursor: cursor });
-    }
+    // if (channelRecord) {
+    //   await channelRecord.update({ lastCursor: cursor });
+    // }
     await getCompleteMessageHistroy(
       allMessages,
       allReplies,
@@ -408,10 +412,17 @@ const fetchUserById = async (req, res) => {
 
 const exportToMattermost = async (req, res) => {
   try {
-    const channelId = "C03N7TDEFLK";
-    const mattermostChannelId = "training-golang";
+    const channelId = "C03QHEST7PA";
+    const mattermostChannelId = "mattermost-internal";
 
-    await loopAndPost();
+    const messages = new Array();
+    await getCompleteMessageHistroy(messages, [], channelId, 1000, null, null);
+
+    const completeMessages = messages.reverse();
+
+    let postingCount = 0;
+    await loopAndPost(completeMessages, postingCount);
+
     res
       .status(200)
       .json({ message: "data transfer has finished succesfully." });
@@ -421,19 +432,19 @@ const exportToMattermost = async (req, res) => {
   }
 };
 
-const loopAndPost = async (cursor = null) => {
+const loopAndPost = async (completeMessages, postingCount) => {
   try {
     // Getting Message.
     let currentMessage;
     let resp;
     // Get The Initial Message from slack...
-    const message = await web.conversations.history({
-      channel: "C03N7TDEFLK",
-      limit: 1,
-      cursor: cursor,
-    });
+    // const message = await web.conversations.history({
+    //   channel: "C03QHEST7PA",
+    //   limit: 1,
+    //   cursor: cursor,
+    // });
 
-    currentMessage = message.messages[0];
+    currentMessage = completeMessages[postingCount];
 
     // from the messages user id, fetch username
     const username = await web.users.info({
@@ -455,34 +466,37 @@ const loopAndPost = async (cursor = null) => {
       );
 
       // Step 2. Check if message contains replies..
-      await loopForReplies("C03N7TDEFLK", currentMessage.ts, resp.data.id);
-      console.log("replies function has completed.... moving to loop again!");
+      if (currentMessage.reply_count) {
+        await loopForReplies("C03QHEST7PA", currentMessage.ts, resp?.data?.id);
+        console.log("replies function has completed.... moving to loop again!");
+      }
     } else {
       // Simple post message to mattermost
-      resp = await axios.post(
-        "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
-        {
-          text: currentMessage.text,
-          normal_hook: true,
-          username: username.user.real_name,
-          channel: "training-golang",
-        }
-      );
+      resp = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h", {
+        text: currentMessage.text,
+        normal_hook: true,
+        username: username.user.real_name,
+        channel: "mattermost-internal",
+      });
 
       console.log("simple post function has completed.... on to replies");
 
       // Step 2. Check if message contains replies..
       if (currentMessage.reply_count) {
-        await loopForReplies("C03N7TDEFLK", currentMessage.ts, resp.data.id);
+        await loopForReplies("C03QHEST7PA", currentMessage.ts, resp?.data?.id);
         console.log("replies function has completed.... moving to loop again!");
       }
     }
 
-    if (message.has_more) {
-      // repeat the whole process..
-      loopAndPost(message.response_metadata.next_cursor);
-    } else {
-      return 1;
+    // if (message.has_more) {
+    //   // repeat the whole process..
+    //   loopAndPost(message.response_metadata.next_cursor);
+    // } else {
+    //   return 1;
+    // }
+
+    if (completeMessages[postingCount + 1]) {
+      loopAndPost(completeMessages, ++postingCount);
     }
   } catch (error) {
     console.log(error);
@@ -506,16 +520,13 @@ const loopForReplies = async (channelId, timestamp, identity) => {
 
       console.log("checking for condition of reply-files!");
       !reply.messages[ix].files
-        ? await axios.post(
-            "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
-            {
-              root_id: identity,
-              text: reply.messages[ix]?.text,
-              normal_hook: true,
-              username: realName?.user.real_name,
-              channel: "training-golang",
-            }
-          )
+        ? await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h", {
+            root_id: identity,
+            text: reply.messages[ix]?.text,
+            normal_hook: true,
+            username: realName?.user.real_name,
+            channel: "mattermost-internal",
+          })
         : await loopForFiles(
             reply.messages[ix]?.files,
             reply.messages[ix]?.text,
@@ -558,7 +569,7 @@ const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
 
   const postToMm = async (fileCollection) => {
     try {
-      const URLsite = "http://10.10.21.132:8065/api/v4/files";
+      const URLsite = BASEURL + "/api/v4/files";
       let formData = new FormData();
       console.log(fileCollection?.length, "POSTING TO MATTERMOST!");
       fileCollection.map((file) => {
@@ -566,25 +577,25 @@ const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
       });
       formData.append("channel_id", "gatf9inux3885f49ijm94dkkgr");
       // formData.append("client_ids", "d3924d3d-5b15-4807-b55f-91cdcfc948d8");
-      formData.append("Authorization", "Bearer w6d9e1857pfsu8u8hw67on1d4y");
+      formData.append("Authorization", "Bearer " + ACCESSTOKEN);
       // All posted files will be received in the response
       let responseData = await axios.post(URLsite, formData, {
         headers: {
           "Content-Type": "multipart/form-data",
-          Authorization: "Bearer w6d9e1857pfsu8u8hw67on1d4y",
+          Authorization: "Bearer " + ACCESSTOKEN,
         },
       });
       // Will stay 0
       const postIds = responseData?.data?.file_infos?.map((el) => el.id);
       // After posting multiple files, we need to
       messageId = await axios.post(
-        "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
+        BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
         {
           root_id: isReply ? identity : null,
           text: userMsg ? userMsg : " ",
           normal_hook: true,
           username: userName,
-          channel: "training-golang",
+          channel: "mattermost-internal",
           file_ids: postIds,
         }
       );
