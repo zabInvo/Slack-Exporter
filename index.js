@@ -21,6 +21,7 @@ require("./auth/passport");
 
 const syncHistroy = require("./exporter").syncHistroy;
 const findChannels = require("./exporter").findChannels;
+const exportToMattermost = require("./exporter").exportToMattermost;
 const fetchConversationHistroy = require("./exporter").fetchConversationHistroy;
 const fetchMessageThread = require("./exporter").fetchMessageThread;
 const fetchAllMessageWithTreads =
@@ -29,6 +30,8 @@ const slackMessageEv = require("./exporter").slackMessageEv;
 const updateMapping = require("./exporter").updateMapping;
 const fetchAllMessageInfo = require("./exporter").fetchAllMessageInfo;
 const fetchUserById = require("./exporter").fetchUserById;
+const findDirectMessages = require("./exporter").findDirectMessages;
+const fetchDirectMessages = require("./exporter").fetchDirectMessages;
 
 app.use(
   cookieSession({
@@ -67,7 +70,9 @@ const Auth = (req, res, next) => {
 app.post("/api/sync-histroy", Auth, syncHistroy);
 app.post("/api/fetch-groups", Auth, findChannels);
 app.post("/api/update-mapping", Auth, updateMapping);
+app.post("/api/fetch-dms", Auth, fetchDirectMessages);
 app.post("/api/histroy", Auth, fetchConversationHistroy);
+app.post("/api/fetch-messages", Auth, findDirectMessages);
 app.post("/api/fetch-message-thread", Auth, fetchMessageThread);
 app.post("/api/fetch-all-message-info", Auth, fetchAllMessageInfo);
 app.post(
@@ -83,13 +88,18 @@ app.post(
 app.post("/api/fetch-user-by-id", Auth, fetchUserById);
 
 // No auth routes for testing.
+app.post("/no-auth-api/export-to-mattermost", exportToMattermost);
 app.post("/no-auth-api/fetch-groups", findChannels);
+app.post("/no-auth-api/fetch-messages", findDirectMessages);
+app.post("/no-auth-api/fetch-dms", fetchDirectMessages);
+app.post("/no-auth-api/histroy", fetchConversationHistroy);
 app.post("/no-auth-api/fetch-message-thread", fetchMessageThread);
 app.post(
   "/no-auth-api/fetch-all-message-with-threads",
   fetchAllMessageWithTreads
 );
 app.post("/no-auth-api/fetch-all-message-info", fetchAllMessageInfo);
+app.post("/no-auth-api/fetch-user-by-id", fetchUserById);
 
 // Authentication Routes
 app.get("/auth/slack", passport.authorize("Slack"));

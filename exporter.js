@@ -1,5 +1,9 @@
 require("dotenv").config();
 const { WebClient } = require("@slack/web-api");
+const axios = require("axios");
+const https = require("https");
+const fs = require("fs");
+const FormData = require("form-data");
 
 const token = process.env.SLACK_USER_TOKEN;
 const web = new WebClient(token);
@@ -49,7 +53,36 @@ const findChannels = async (req, res) => {
         "status",
       ],
     });
-    res.status(200).json({ data: allChannels });
+    res.status(200).json({ data: result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
+  }
+};
+
+const findDirectMessages = async (req, res) => {
+  try {
+    const type = req.body.type; // Can be either "private_channel", "public_channel", "mpim", "im"
+    const result = await web.conversations.list({
+      types: type,
+    });
+
+    res.status(200).json({ data: result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
+  }
+};
+
+const fetchDirectMessages = async (req, res) => {
+  try {
+    const id = req.body.id;
+    const messages = await web.conversations.history({
+      channel: id,
+      limit: 100,
+    });
+
+    res.status(200).json({ data: messages });
   } catch (error) {
     console.error(error);
     res.status(500).json({ messages: "Internal Server Error", error: error });
@@ -59,16 +92,16 @@ const findChannels = async (req, res) => {
 const fetchConversationHistroy = async (req, res) => {
   try {
     const channelId = req.body.channelId;
-    let conversationHistory;
+    let currentMessage;
     const result = await web.conversations.history({
       channel: channelId,
       limit: 100,
     });
 
-    conversationHistory = result.messages;
+    currentMessage = result.messages;
 
-    console.log(conversationHistory.length + " messages found in " + channelId);
-    res.status(200).json({ data: conversationHistory });
+    console.log(currentMessage.length + " messages found in " + channelId);
+    res.status(200).json({ data: currentMessage });
   } catch (error) {
     console.error(error);
     res.status(500).json({ messages: "Internal Server Error", error: error });
@@ -137,9 +170,17 @@ const fetchAllMessageWithTreads = async (req, res) => {
       cursor,
       channelRecord
     );
-    const date = new Date();
-    await channelRecord.update({ lastUpdatedAt: date, status: "Completed" });
-    res.status(200).json({ messages: allMessages, replies: allReplies });
+    // const date = new Date();
+    // await channelRecord.update({ lastUpdatedAt: date, status: "Completed" });
+    // res.status(200).json({});
+    res.status(200).json({
+      messages: allMessages,
+      replies: allReplies,
+      lengths: {
+        messagesLength: allMessages.length,
+        repliesLength: allReplies.length,
+      },
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ messages: "Internal Server Error", error: error });
@@ -357,9 +398,186 @@ const slackMessageEv = async (ev) => {};
 const fetchUserById = async (req, res) => {
   const userId = req.body.userId;
   const token = req.body.userId;
-  const data = await web.users.info({ token, user: userId });
+  const data = await web.users.info({
+    token,
+    user: userId,
+  });
 
   console.log(data);
+};
+
+const exportToMattermost = async (req, res) => {
+  try {
+    const channelId = "C03N7TDEFLK";
+    const mattermostChannelId = "training-golang";
+
+    await loopAndPost();
+    res
+      .status(200)
+      .json({ message: "data transfer has finished succesfully." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ messages: "Internal Server Error", error: error });
+  }
+};
+
+const loopAndPost = async (cursor = null) => {
+  try {
+    // Getting Message.
+    let currentMessage;
+    let resp;
+    // Get The Initial Message from slack...
+    const message = await web.conversations.history({
+      channel: "C03N7TDEFLK",
+      limit: 1,
+      cursor: cursor,
+    });
+
+    currentMessage = message.messages[0];
+
+    // from the messages user id, fetch username
+    const username = await web.users.info({
+      user: currentMessage.user,
+    });
+
+    // Step 1. Check if message contains files..
+    if (currentMessage.files) {
+      // if there are files, add filed message.
+      console.log("going in files function...");
+      await loopForFiles(
+        currentMessage.files,
+        currentMessage.text,
+        username.user.real_name
+      );
+    } else {
+      // Simple post message to mattermost
+      resp = await axios.post(
+        "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
+        {
+          text: currentMessage.text,
+          normal_hook: true,
+          username: username.user.real_name,
+          channel: "training-golang",
+        }
+      );
+
+      console.log("file function has completed.... on to replies");
+
+      // Step 2. Check if message contains replies..
+      if (currentMessage.reply_count) {
+        await loopForReplies("C03N7TDEFLK", currentMessage.ts, resp.data.id);
+        console.log("replies function has completed.... moving to loop again!");
+      }
+    }
+
+    if (message.has_more) {
+      // repeat the whole process..
+      loopAndPost(message.response_metadata.next_cursor);
+    } else {
+      return 1;
+    }
+  } catch (error) {
+    console.log(error);
+    return -1;
+  }
+};
+
+const loopForReplies = async (channelId, timestamp, identity) => {
+  try {
+    const reply = await web.conversations.replies({
+      channel: channelId,
+      ts: timestamp,
+    });
+
+    const realName = await web.users.info({
+      user: reply.messages[1]?.user,
+    });
+
+    for (let ix = 0; ix < reply.messages.length; ix++) {
+      await axios.post(
+        "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
+        {
+          root_id: identity,
+          text: reply.messages[ix + 1]?.text,
+          normal_hook: true,
+          username: realName?.user.real_name,
+          channel: "training-golang",
+        }
+      );
+    }
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+const loopForFiles = async (bundle, userMsg, userName) => {
+  // Fetch ALL files from slack, and then send only one save request to database.
+  const fetchFromSlack = async (indx, bundle) => {
+    // console.log("index no " + indx);
+    return new Promise((resolve, reject) => {
+      https.get(
+        bundle[indx].url_private_download,
+        {
+          headers: { Authorization: "Bearer " + process.env.SLACK_USER_TOKEN },
+        },
+        async (res) => {
+          filesFromSlack.push(res);
+
+          // if there are more files... keep fetching...
+          console.log("checking for condition");
+          bundle[indx + 1]
+            ? await fetchFromSlack(++indx, bundle)
+            : await postToMm(filesFromSlack);
+
+          resolve();
+          // Done pushing, then resolving the loop.
+        }
+      );
+    });
+  };
+
+  const postToMm = async (fileCollection) => {
+    try {
+      const URLsite = "http://10.10.21.132:8065/api/v4/files";
+      let formData = new FormData();
+      console.log(fileCollection?.length, "POSTING TO MATTERMOST!");
+      fileCollection.map((file) => {
+        formData.append("files", file);
+      });
+      formData.append("channel_id", "gatf9inux3885f49ijm94dkkgr");
+      // formData.append("client_ids", "d3924d3d-5b15-4807-b55f-91cdcfc948d8");
+      formData.append("Authorization", "Bearer w6d9e1857pfsu8u8hw67on1d4y");
+      // All posted files will be received in the response
+      let responseData = await axios.post(URLsite, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: "Bearer w6d9e1857pfsu8u8hw67on1d4y",
+        },
+      });
+      // Will stay 0
+      const postIds = responseData?.data?.file_infos?.map((el) => el.id);
+      // After posting multiple files, we need to
+      await axios.post(
+        "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
+        {
+          text: userMsg,
+          normal_hook: true,
+          username: userName,
+          channel: "training-golang",
+          file_ids: postIds,
+        }
+      );
+    } catch (error) {
+      console.log("Error, please have a look at ", error);
+    }
+  };
+
+  // Get file data.
+  const filesFromSlack = new Array();
+  let bundleIndx = -1;
+  await fetchFromSlack(++bundleIndx, bundle);
+
+  console.log("bye files fn..");
 };
 
 module.exports = {
@@ -372,4 +590,38 @@ module.exports = {
   syncHistroy,
   fetchUserById,
   updateMapping,
+  findDirectMessages,
+  fetchDirectMessages,
+  exportToMattermost,
 };
+
+// for (let ix = 0; ix < bundle.length; ix++) {
+//   https.get(
+//     bundle[0].url_private_download,
+//     {
+//       headers: {
+//         Authorization: "Bearer " + process.env.SLACK_USER_TOKEN,
+//       },
+//     },
+//     async (res) => {
+//       let filename = "file-" + Date.now() + "." + bundle[ix].filetype;
+//       const fileStream = fs.createWriteStream(filename);
+//       res.pipe(fileStream);
+//       fileStream.on("finish", async () => {
+//         fileStream.close();
+//         console.log("done writing " + filename);
+
+//         let responseData = await axios.post(
+//           "http://10.10.21.132:8065/hooks/api/v4/files",
+//           {
+//             channel_id: "training-golang",
+//             client_ids: "",
+//             files: data,
+//           }
+//         );
+
+//         console.log("over here it is =>", responseData);
+//       });
+//     }
+//   );
+// }
