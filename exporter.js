@@ -444,11 +444,19 @@ const loopAndPost = async (cursor = null) => {
     if (currentMessage.files) {
       // if there are files, add filed message.
       console.log("going in files function...");
-      await loopForFiles(
+      resp = await loopForFiles(
         currentMessage.files,
         currentMessage.text,
         username.user.real_name
       );
+
+      console.log(
+        "message with attachment function has completed.... on to replies"
+      );
+
+      // Step 2. Check if message contains replies..
+      await loopForReplies("C03N7TDEFLK", currentMessage.ts, resp.data.id);
+      console.log("replies function has completed.... moving to loop again!");
     } else {
       // Simple post message to mattermost
       resp = await axios.post(
@@ -461,7 +469,7 @@ const loopAndPost = async (cursor = null) => {
         }
       );
 
-      console.log("file function has completed.... on to replies");
+      console.log("simple post function has completed.... on to replies");
 
       // Step 2. Check if message contains replies..
       if (currentMessage.reply_count) {
@@ -484,33 +492,45 @@ const loopAndPost = async (cursor = null) => {
 
 const loopForReplies = async (channelId, timestamp, identity) => {
   try {
+    // Get All Replies for that message.
     const reply = await web.conversations.replies({
       channel: channelId,
-      ts: timestamp,
+      ts: timestamp, // id of that message whose reply we need..
     });
 
-    const realName = await web.users.info({
-      user: reply.messages[1]?.user,
-    });
+    for (let ix = 1; ix < reply.messages.length; ix++) {
+      // Get real name of the user...
+      const realName = await web.users.info({
+        user: reply.messages[ix]?.user,
+      });
 
-    for (let ix = 0; ix < reply.messages.length; ix++) {
-      await axios.post(
-        "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
-        {
-          root_id: identity,
-          text: reply.messages[ix + 1]?.text,
-          normal_hook: true,
-          username: realName?.user.real_name,
-          channel: "training-golang",
-        }
-      );
+      console.log("checking for condition of reply-files!");
+      !reply.messages[ix].files
+        ? await axios.post(
+            "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
+            {
+              root_id: identity,
+              text: reply.messages[ix]?.text,
+              normal_hook: true,
+              username: realName?.user.real_name,
+              channel: "training-golang",
+            }
+          )
+        : await loopForFiles(
+            reply.messages[ix]?.files,
+            reply.messages[ix]?.text,
+            realName?.user?.real_name,
+            true,
+            identity
+          );
     }
   } catch (error) {
     console.log(error);
   }
 };
 
-const loopForFiles = async (bundle, userMsg, userName) => {
+const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
+  let messageId = null;
   // Fetch ALL files from slack, and then send only one save request to database.
   const fetchFromSlack = async (indx, bundle) => {
     // console.log("index no " + indx);
@@ -557,10 +577,11 @@ const loopForFiles = async (bundle, userMsg, userName) => {
       // Will stay 0
       const postIds = responseData?.data?.file_infos?.map((el) => el.id);
       // After posting multiple files, we need to
-      await axios.post(
+      messageId = await axios.post(
         "http://10.10.21.132:8065/hooks/u457hbw49ff7u8tyaar51n64ce",
         {
-          text: userMsg,
+          root_id: isReply ? identity : null,
+          text: userMsg ? userMsg : " ",
           normal_hook: true,
           username: userName,
           channel: "training-golang",
@@ -578,6 +599,8 @@ const loopForFiles = async (bundle, userMsg, userName) => {
   await fetchFromSlack(++bundleIndx, bundle);
 
   console.log("bye files fn..");
+  console.log(messageId?.data?.id);
+  return messageId;
 };
 
 module.exports = {
@@ -594,34 +617,3 @@ module.exports = {
   fetchDirectMessages,
   exportToMattermost,
 };
-
-// for (let ix = 0; ix < bundle.length; ix++) {
-//   https.get(
-//     bundle[0].url_private_download,
-//     {
-//       headers: {
-//         Authorization: "Bearer " + process.env.SLACK_USER_TOKEN,
-//       },
-//     },
-//     async (res) => {
-//       let filename = "file-" + Date.now() + "." + bundle[ix].filetype;
-//       const fileStream = fs.createWriteStream(filename);
-//       res.pipe(fileStream);
-//       fileStream.on("finish", async () => {
-//         fileStream.close();
-//         console.log("done writing " + filename);
-
-//         let responseData = await axios.post(
-//           "http://10.10.21.132:8065/hooks/api/v4/files",
-//           {
-//             channel_id: "training-golang",
-//             client_ids: "",
-//             files: data,
-//           }
-//         );
-
-//         console.log("over here it is =>", responseData);
-//       });
-//     }
-//   );
-// }
