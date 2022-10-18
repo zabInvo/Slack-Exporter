@@ -4,7 +4,7 @@ const axios = require("axios");
 const https = require("https");
 const fs = require("fs");
 const FormData = require("form-data");
-const { off } = require("process");
+const process = require("process");
 
 const BASEURL = "https://source-im.invo.zone";
 const ACCESSTOKEN = "huokuoz633yupcqi9zti4ywdna";
@@ -13,6 +13,10 @@ const token = process.env.SLACK_USER_TOKEN;
 const web = new WebClient(token);
 
 const slackChannelsModel = require("./models").SlackChannel;
+
+process.on("uncaughtException", () => {
+  console.log("Something bad happened, kindly check the code..");
+});
 
 // Find conversation ID using the conversations.list method
 const findChannels = async (req, res) => {
@@ -413,7 +417,7 @@ const fetchUserById = async (req, res) => {
 const exportToMattermost = async (req, res) => {
   try {
     const channelId = "C03QHEST7PA";
-    const mattermostChannelId = "mattermost-internal";
+    const mattermostChannelId = "mattermost-test";
 
     const messages = new Array();
     await getCompleteMessageHistroy(messages, [], channelId, 1000, null, null);
@@ -472,12 +476,19 @@ const loopAndPost = async (completeMessages, postingCount) => {
       }
     } else {
       // Simple post message to mattermost
-      resp = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h", {
-        text: currentMessage.text,
-        normal_hook: true,
-        username: username.user.real_name,
-        channel: "mattermost-internal",
-      });
+      resp = await axios.post(
+        BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+        {
+          text: currentMessage.text,
+          normal_hook: true,
+          username: username.user.real_name,
+          channel: "mattermost-test",
+        },
+        {
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        }
+      );
 
       console.log("simple post function has completed.... on to replies");
 
@@ -520,13 +531,20 @@ const loopForReplies = async (channelId, timestamp, identity) => {
 
       console.log("checking for condition of reply-files!");
       !reply.messages[ix].files
-        ? await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h", {
-            root_id: identity,
-            text: reply.messages[ix]?.text,
-            normal_hook: true,
-            username: realName?.user.real_name,
-            channel: "mattermost-internal",
-          })
+        ? await axios.post(
+            BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+            {
+              root_id: identity,
+              text: reply.messages[ix]?.text,
+              normal_hook: true,
+              username: realName?.user.real_name,
+              channel: "mattermost-test",
+            },
+            {
+              maxContentLength: Infinity,
+              maxBodyLength: Infinity,
+            }
+          )
         : await loopForFiles(
             reply.messages[ix]?.files,
             reply.messages[ix]?.text,
@@ -569,25 +587,28 @@ const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
 
   const postToMm = async (fileCollection) => {
     try {
-      const URLsite = BASEURL + "/api/v4/files";
       let formData = new FormData();
       console.log(fileCollection?.length, "POSTING TO MATTERMOST!");
       fileCollection.map((file) => {
         formData.append("files", file);
       });
-      formData.append("channel_id", "gatf9inux3885f49ijm94dkkgr");
-      // formData.append("client_ids", "d3924d3d-5b15-4807-b55f-91cdcfc948d8");
+      formData.append("channel_id", "mjkhchcykidofe9ncgtzbge3ec");
       formData.append("Authorization", "Bearer " + ACCESSTOKEN);
       // All posted files will be received in the response
-      let responseData = await axios.post(URLsite, formData, {
+      let responseData = await axios.post(BASEURL + "/api/v4/files", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
           Authorization: "Bearer " + ACCESSTOKEN,
         },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       });
       // Will stay 0
       const postIds = responseData?.data?.file_infos?.map((el) => el.id);
+      console.log("postIds => " + postIds);
       // After posting multiple files, we need to
+
+      // if post id is not correct, undefined..
       messageId = await axios.post(
         BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
         {
@@ -595,12 +616,17 @@ const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
           text: userMsg ? userMsg : " ",
           normal_hook: true,
           username: userName,
-          channel: "mattermost-internal",
+          channel: "mattermost-test",
           file_ids: postIds,
+        },
+        {
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
         }
       );
     } catch (error) {
       console.log("Error, please have a look at ", error);
+      process.exit();
     }
   };
 
