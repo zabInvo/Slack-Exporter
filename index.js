@@ -9,6 +9,7 @@ const cookieSession = require("cookie-session");
 const passport = require("passport");
 const e = require("express");
 const port = process.env.PORT || 8080;
+const CLIENT_URL = "https://localhost:3000";
 
 // For Locally use of https cert instead of http
 const fs = require("fs");
@@ -27,6 +28,8 @@ const fetchMessageThread = require("./exporter").fetchMessageThread;
 const fetchAllMessageWithTreads =
   require("./exporter").fetchAllMessageWithTreads;
 const slackMessageEv = require("./exporter").slackMessageEv;
+const exportToMattermost = require("./exporter").exportToMattermost;
+const updateMapping = require("./exporter").updateMapping;
 
 app.use(
   cookieSession({
@@ -45,7 +48,7 @@ app.use(bodyParser.json());
 
 app.use(
   cors({
-    origin: "https://localhost:3000",
+    origin: CLIENT_URL,
     methods: "GET, POST, PUT, DELETE",
     credentials: true,
   })
@@ -58,18 +61,25 @@ app.get("/", (req, res) => {
   res.send("You land on a wrong planet, no one lives here.");
 });
 
+const Auth = (req, res, next) => {
+  console.log(req.isAuthenticated());
+  return req.isAuthenticated() ? next() : res.sendStatus(401);
+};
+
 app.post("/api/sync-histroy", syncHistroy);
 app.post("/api/fetch-groups", findChannels);
 app.post("/api/histroy", fetchConversationHistroy);
 app.post("/api/fetch-message-thread", fetchMessageThread);
 app.post("/api/fetch-all-message-with-threads", fetchAllMessageWithTreads);
+app.post("/api/update-mapping", updateMapping);
+app.post("/api/export-to-mattermost", exportToMattermost);
 
 // Auth Routes
 app.get("/auth/slack", passport.authorize("Slack"));
 app.get(
   "/auth/slack/callback",
   passport.authenticate("Slack", {
-    successRedirect: "https://localhost:3000/public",
+    successRedirect: CLIENT_URL + "/public",
     failureRedirect: "/login/failed",
   })
 );
@@ -86,7 +96,7 @@ app.get("/api/login/failed", (req, res) => {
 
 app.get("/api/logout", (req, res) => {
   req.logout();
-  res.redirect("https://localhost:3000/login");
+  res.redirect(CLIENT_URL + "/login");
 });
 
 // Slack Message Listener.
