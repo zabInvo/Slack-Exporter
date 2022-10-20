@@ -125,7 +125,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
   try {
     // Extract the channel id.
     const channelId = req.body.channelId;
-    const limit = req.body.limit || 100;
+    const limit = req.body.limit || 50;
     // Complete messages being stored into an array.
     let allMessages = [];
     // Complete replies being stored into an array.
@@ -154,13 +154,20 @@ const fetchAllMessageWithTreads = async (req, res) => {
       if (allMessages[i].files) {
         console.log("going in files function...");
         const fetchedFiles = await fetchFromSlack(allMessages[i].files);
+        console.log("This file is fetchec", fetchedFiles);
         if (fetchedFiles.length >= 1) {
           const sendFile = await postFilesToMettermost(
             fetchedFiles,
             allMessages[i].text,
+            allMessages[i].ts,
             username.user.real_name,
-            channelRecord.mattermostId
+            channelRecord.mattermostId,
+            false
           );
+          console.log("This is send file Response -> ", sendFile);
+          if (allMessages[i].thread_ts && sendFile) {
+            rootIds.push({ ts: allMessages[i].thread_ts, rootId: sendFile.data.id })
+          }
         }
       } else {
         let singleMessage = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
@@ -169,6 +176,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
             normal_hook: true,
             username: username.user.real_name,
             channel: channelRecord.mattermostId,
+            create_at: parseInt(allMessages[i].ts * 1000)
           }
         );
         if (allMessages[i].thread_ts) {
@@ -182,30 +190,37 @@ const fetchAllMessageWithTreads = async (req, res) => {
         const username = await web.users.info({
           user: allReplies[i][x].user,
         });
-        const rootId = rootIds.find((item) => allReplies[i][x].thread_ts === item.ts).rootId;
-        console.log("This is root for this thread", rootId);
-        if (allReplies[i][x].files) {
-          console.log("going in files function for thread...");
-          const fetchedFiles = await fetchFromSlack(allReplies[i][x].files);
-          if (fetchedFiles.length >= 1) {
-            const sendFile = await postFilesToMettermost(
-              fetchedFiles,
-              allReplies[i][x].text,
-              username.user.real_name,
-              channelRecord.mattermostId,
-              rootId
+        const isReply = true;
+        const FindRootId = rootIds.find((item) => allReplies[i][x].thread_ts === item.ts);
+        if (typeof (FindRootId) !== 'undefined') {
+          const rootId = FindRootId.rootId;
+          console.log("This is root for this thread", rootId);
+          if (allReplies[i][x].files) {
+            console.log("going in files function for thread...");
+            const fetchedFiles = await fetchFromSlack(allReplies[i][x].files);
+            if (fetchedFiles.length >= 1) {
+              const sendFile = await postFilesToMettermost(
+                fetchedFiles,
+                allReplies[i][x].text,
+                allMessages[i].ts,
+                username.user.real_name,
+                channelRecord.mattermostId,
+                isReply,
+                rootId
+              );
+            }
+          } else {
+            const singleReply = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+              {
+                root_id: rootId,
+                text: allReplies[i][x].text,
+                normal_hook: true,
+                username: username.user.real_name,
+                channel: channelRecord.mattermostId,
+                create_at: parseInt(allMessages[i].ts * 1000)
+              }
             );
           }
-        } else {
-          const singleReply = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
-            {
-              root_id: rootId,
-              text: allReplies[i][x].text,
-              normal_hook: true,
-              username: username.user.real_name,
-              channel: channelRecord.mattermostId,
-            }
-          );
         }
       }
     }
@@ -218,6 +233,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
     };
     const io = req.app.get("socketio");
     io.emit("lastUpdated", socketPayload);
+    // res.status(200).json({ messages: allMessages, replies: allReplies });
     return;
   } catch (error) {
     console.error('this is error -> ', error);
@@ -226,57 +242,81 @@ const fetchAllMessageWithTreads = async (req, res) => {
 };
 
 const fetchFromSlack = async (file) => {
-  const filesFromSlack = [];
-  for (let i = 0; i < file.length; i++) {
-    if (file[i].url_private_download && typeof(file[i].url_private_download) !== 'undefined') {
-      const fetchFile = await axios.get(file[i].url_private_download, {
-        headers: { Authorization: "Bearer " + process.env.SLACK_USER_TOKEN },
-      });
-      await filesFromSlack.push(fetchFile);
+  return new Promise((resolve, reject) => {
+    const filesFromSlack = [];
+    for (let i = 0; i < file.length; i++) {
+      if (file[i].url_private_download && typeof (file[i].url_private_download) !== 'undefined') {
+        https.get(
+          file[i].url_private_download,
+          {
+            headers: { Authorization: "Bearer " + process.env.SLACK_USER_TOKEN },
+          }, async (res) => {
+            await filesFromSlack.push(res);
+            if (i === file.length - 1) {
+              resolve(filesFromSlack);
+            }
+          })
+      } else {
+        if (i === file.length - 1) {
+          resolve(filesFromSlack);
+        }
+      }
     }
-  }
-  return filesFromSlack;
-};
+  })
+}
 
 const postFilesToMettermost = async (
-  fileCollection,
+  fetchedFiles,
   textMessage,
+  createdAt,
   username,
   mattermostId,
+  isReply,
   rootId = null
 ) => {
   try {
     const URLsite = BASEURL + "/api/v4/files";
     let formData = new FormData();
-    console.log(fileCollection?.length, "POSTING TO MATTERMOST!");
-    fileCollection.map((file) => {
+    console.log(fetchedFiles?.length, "POSTING TO MATTERMOST!");
+    fetchedFiles.map((file) => {
       formData.append("files", file);
     });
-    formData.append("Authorization", "Bearer " + ACCESSTOKEN);
     formData.append("channel_id", "mjkhchcykidofe9ncgtzbge3ec");
-    console.log("formData 2 -> ", formData);
+    formData.append("Authorization", "Bearer " + ACCESSTOKEN);
     // All posted files will be received in the response
-    let responseData = await axios.post(URLsite, formData, {
+
+    const instance = axios.create({
+      httpAgent: new http.Agent({ keepAlive: true }),
+    });
+
+    let responseData = await instance.post(URLsite, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
         Authorization: "Bearer " + ACCESSTOKEN,
       },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
     });
     // Will stay 0
     const postIds = responseData?.data?.file_infos?.map((el) => el.id);
-    console.log("This is postIds -> ", postIds);
+
     // After posting multiple files, we need to
-    const response = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+    const response = await instance.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
       {
-        root_id: rootId ? rootId : null,
+        root_id: isReply ? rootId : null,
         text: textMessage,
         normal_hook: true,
         username: username,
         channel: mattermostId,
         file_ids: postIds,
+        create_at: parseInt(createdAt * 1000)
+      },
+      {
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       }
     );
-    console.log("This is images response -> ", response);
+    console.log("Attachment Sent Successfully");
     return response;
   } catch (error) {
     console.log("Error, please have a look at ", error);
@@ -324,6 +364,7 @@ const getCompleteMessageHistroy = async (
   }
 
   // if more data exists then update cursor and re-calls the function, else return
+
   if (result.has_more === true) {
     cursor = result.response_metadata.next_cursor;
     if (channelRecord) {
