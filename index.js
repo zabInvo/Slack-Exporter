@@ -30,6 +30,8 @@ const fetchAllMessageWithTreads =
 const slackMessageEv = require("./exporter").slackMessageEv;
 const exportToMattermost = require("./exporter").exportToMattermost;
 const updateMapping = require("./exporter").updateMapping;
+const testMattermost = require("./exporter").testMattermost;
+const getUser = require("./exporter").getUser;
 
 app.use(
   cookieSession({
@@ -40,6 +42,9 @@ app.use(
     secure: true,
   })
 );
+
+// Plug the adapter in as a middleware
+app.use("/slack/events", slackEvents.requestListener());
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -53,9 +58,6 @@ app.use(
     credentials: true,
   })
 );
-
-// Plug the adapter in as a middleware
-app.use("/slack/events", slackEvents.requestListener());
 
 app.get("/", (req, res) => {
   res.send("You land on a wrong planet, no one lives here.");
@@ -73,6 +75,8 @@ app.post("/api/fetch-message-thread", fetchMessageThread);
 app.post("/api/fetch-all-message-with-threads", fetchAllMessageWithTreads);
 app.post("/api/update-mapping", updateMapping);
 app.post("/api/export-to-mattermost", exportToMattermost);
+app.post("/api/export-to-mattermost/test", testMattermost);
+app.post("/api/get-user", getUser);
 
 // Auth Routes
 app.get("/auth/slack", passport.authorize("Slack"));

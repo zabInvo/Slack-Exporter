@@ -4,6 +4,7 @@ const token = process.env.SLACK_USER_TOKEN;
 const axios = require("axios");
 const https = require("https");
 const FormData = require("form-data");
+const userStore = [{ id: null, name: null }];
 
 const { WebClient } = require("@slack/web-api");
 const web = new WebClient(token);
@@ -215,7 +216,15 @@ const getCompleteMessageHistroy = async (
 };
 
 const slackMessageEv = async (ev) => {
-  console.log(ev);
+  if (!ev.subtype) {
+    console.log(ev.text);
+  } else if (ev.subtype == "message_changed") {
+    console.log(
+      ev.previous_message.text + " is now --->>>>> " + ev.message.text
+    );
+  } else if (ev.subtype == "message_deleted") {
+    console.log(ev.previous_message.text + " has now been deleted!");
+  }
 };
 
 const updateMapping = async (req, res) => {
@@ -226,7 +235,7 @@ const updateMapping = async (req, res) => {
     if (record) {
       await record.update({
         mattermostName: req.body.mattermostName,
-        forwardUrl: req.body.forwardUrl,
+        mattermostId: req.body.mattermostName,
       });
       res.sendStatus(200);
     }
@@ -237,10 +246,15 @@ const updateMapping = async (req, res) => {
 
 const exportToMattermost = async (req, res) => {
   try {
-    console.log(req.body);
+    //Global Details
     exporter.channelId = req.body.channelId;
     exporter.mattermostName = req.body.mattermostName;
 
+    // Get Users.
+    exporter.usersInfo = new Array();
+    await getChannelUsers(exporter.usersInfo);
+
+    // Get Messages.
     const messages = new Array();
     await getCompleteMessageHistroy(
       messages,
@@ -270,19 +284,10 @@ const loopAndPost = async (completeMessages, postingCount) => {
     // Getting Message.
     let currentMessage;
     let resp;
-    // Get The Initial Message from slack...
-    // const message = await web.conversations.history({
-    //   channel: exporter.channelId,
-    //   limit: 1,
-    //   cursor: cursor,
-    // });
 
     currentMessage = completeMessages[postingCount];
-
-    // from the messages user id, fetch username
-    const username = await web.users.info({
-      user: currentMessage.user,
-    });
+    // const username = await convertToName(currentMessage.user);
+    const username = currentMessage.user;
 
     // Step 1. Check if message contains files..
     if (currentMessage.files) {
@@ -291,13 +296,9 @@ const loopAndPost = async (completeMessages, postingCount) => {
       resp = await loopForFiles(
         currentMessage.files,
         currentMessage.text,
-        username.user.real_name
+        username,
+        currentMessage.ts
       );
-
-      console.log(
-        "message with attachment function has completed.... on to replies"
-      );
-
       // Step 2. Check if message contains replies..
       if (currentMessage.reply_count) {
         await loopForReplies(
@@ -305,17 +306,17 @@ const loopAndPost = async (completeMessages, postingCount) => {
           currentMessage.ts,
           resp?.data?.id
         );
-        console.log("replies function has completed.... moving to loop again!");
       }
     } else {
       // Simple post message to mattermost
       resp = await axios.post(
         BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
         {
-          text: currentMessage.text,
+          text: resolveTags(currentMessage.text),
           normal_hook: true,
-          username: username.user.real_name,
           channel: exporter.mattermostName,
+          create_at: parseInt(currentMessage.ts * 1000),
+          user_email: getEmail(username),
         },
         {
           maxContentLength: Infinity,
@@ -323,8 +324,6 @@ const loopAndPost = async (completeMessages, postingCount) => {
         }
       );
 
-      console.log("simple post function has completed.... on to replies");
-
       // Step 2. Check if message contains replies..
       if (currentMessage.reply_count) {
         await loopForReplies(
@@ -332,16 +331,8 @@ const loopAndPost = async (completeMessages, postingCount) => {
           currentMessage.ts,
           resp?.data?.id
         );
-        console.log("replies function has completed.... moving to loop again!");
       }
     }
-
-    // if (message.has_more) {
-    //   // repeat the whole process..
-    //   loopAndPost(message.response_metadata.next_cursor);
-    // } else {
-    //   return 1;
-    // }
 
     if (completeMessages[postingCount + 1]) {
       loopAndPost(completeMessages, ++postingCount);
@@ -361,21 +352,19 @@ const loopForReplies = async (channelId, timestamp, identity) => {
     });
 
     for (let ix = 1; ix < reply.messages.length; ix++) {
-      // Get real name of the user...
-      const realName = await web.users.info({
-        user: reply.messages[ix]?.user,
-      });
-
-      console.log("checking for condition of reply-files!");
+      // const realName = await convertToName(reply.messages[ix]?.user);
+      const realName = reply.messages[ix]?.user;
       !reply.messages[ix].files
         ? await axios.post(
             BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
             {
               root_id: identity,
-              text: reply.messages[ix]?.text,
+              text: resolveTags(reply.messages[ix]?.text),
               normal_hook: true,
-              username: realName?.user.real_name,
+              // username: realName,
               channel: exporter.mattermostName,
+              create_at: parseInt(reply.messages[ix]?.ts * 1000),
+              user_email: getEmail(realName),
             },
             {
               maxContentLength: Infinity,
@@ -385,7 +374,8 @@ const loopForReplies = async (channelId, timestamp, identity) => {
         : await loopForFiles(
             reply.messages[ix]?.files,
             reply.messages[ix]?.text,
-            realName?.user?.real_name,
+            realName,
+            reply.messages[ix]?.ts,
             true,
             identity
           );
@@ -395,11 +385,17 @@ const loopForReplies = async (channelId, timestamp, identity) => {
   }
 };
 
-const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
+const loopForFiles = async (
+  bundle,
+  userMsg,
+  userName,
+  createdAtDate,
+  isReply,
+  identity
+) => {
   let messageId = null;
   // Fetch ALL files from slack, and then send only one save request to database.
   const fetchFromSlack = async (indx, bundle) => {
-    // console.log("index no " + indx);
     return new Promise((resolve, reject) => {
       https.get(
         bundle[indx].url_private_download,
@@ -443,6 +439,7 @@ const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
       // Will stay 0
       const postIds = responseData?.data?.file_infos?.map((el) => el.id);
       console.log("postIds => " + postIds);
+      console.log("createAtDate", createdAtDate);
       // After posting multiple files, we need to
 
       // if post id is not correct, undefined..
@@ -450,11 +447,13 @@ const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
         BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
         {
           root_id: isReply ? identity : null,
-          text: userMsg ? userMsg : " ",
+          text: resolveTags(userMsg ? userMsg : " "),
           normal_hook: true,
-          username: userName,
+          // username: userName,
           channel: exporter.mattermostName,
           file_ids: postIds,
+          create_at: parseInt(createdAtDate * 1000),
+          user_email: "darab.monib@invozone.com",
         },
         {
           maxContentLength: Infinity,
@@ -472,10 +471,112 @@ const loopForFiles = async (bundle, userMsg, userName, isReply, identity) => {
   let bundleIndx = -1;
   await fetchFromSlack(++bundleIndx, bundle);
 
-  console.log("bye files fn..");
-  console.log(messageId?.data?.id);
   return messageId;
 };
+
+const testMattermost = async (req, res) => {
+  await axios.post(
+    BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+    {
+      text: "@furqanaziz here are the details?",
+      normal_hook: true,
+      username: "Node-Testing",
+      channel: req.body.mattermostName,
+      user_email: "darab.monib@invozone.com",
+    },
+    {
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    }
+  );
+
+  res.status(200).json({
+    success: true,
+    body: { ...req.body },
+  });
+};
+
+// const convertToName = async (userId) => {
+//   // Checks the userStore if there is already a name fetched for that id,
+//   // if there is a name, it will not call users.info API, will return userDetail from store,
+//   // if there is'nt a name, then the API will be called
+
+//   const userDetail = userStore.find((el) => el.id === userId);
+//   if (userDetail !== undefined) {
+//     return userDetail.name;
+//   } else {
+//     const userDetails = await web.users.info({
+//       user: userId,
+//     });
+
+//     userStore.push({
+//       name: userDetails.user.profile.real_name,
+//       id: userId,
+//     });
+
+//     return userDetails.user.profile.real_name;
+//   }
+
+//   // return exporter.usersInfo.find(el => el.id === id).name
+// };
+
+const resolveTags = (message) => {
+  message.split("<@").map((el, ix) => {
+    if (
+      (ix !== 0 && el.length !== 0) ||
+      (ix == 0 && message[13] === ">" && el.length !== 0)
+    ) {
+      const email = replaceWith(el.slice(0, 12));
+      message = message.replace(el.slice(0, 12), email);
+    }
+  });
+  return message.replace(new RegExp("<@", "g"), "@");
+};
+
+const replaceWith = (id) => {
+  const userId = id.substring(0, id.length - 1);
+  console.log(userId);
+  const user = exporter.usersInfo.find((el) => el.id === userId);
+  if (user) {
+    return user.name;
+  }
+  return "TAG_HERE";
+};
+
+const getEmail = (id) => {
+  const user = exporter.usersInfo.find((el) => el.id === id);
+  return user.email === undefined ? "furqan@invozone.com" : user.email;
+};
+
+const getChannelUsers = async (usersArr, cursor = null) => {
+  const usersInfo = await web.users.list({
+    cursor,
+  });
+
+  usersInfo.members[0].profile.email;
+
+  usersArr.push(
+    ...usersInfo.members.map((el) => {
+      return {
+        id: el.id,
+        name: el.name,
+        display_name: el.profile.display_name,
+        email: el.profile.email,
+      };
+    })
+  );
+  console.log("repeating!!", usersArr.length);
+
+  if (usersInfo.response_metadata.next_cursor) {
+    console.log(usersInfo.response_metadata.next_cursor);
+    await getChannelUsers(usersArr, usersInfo.response_metadata.next_cursor);
+  }
+
+  return true;
+};
+
+const getUser = async (req, res) =>
+  res.send(await web.users.info({ user: req.body.user }));
 
 module.exports = {
   findChannels,
@@ -486,4 +587,6 @@ module.exports = {
   syncHistroy,
   exportToMattermost,
   updateMapping,
+  testMattermost,
+  getUser,
 };
