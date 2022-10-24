@@ -125,19 +125,24 @@ const fetchAllMessageWithTreads = async (req, res) => {
   try {
     // Extract the channel id.
     const channelId = req.body.channelId;
-    const limit = req.body.limit || 50;
+    const limit = req.body.limit || 100;
     // Complete messages being stored into an array.
     let allMessages = [];
     // Complete replies being stored into an array.
     let allReplies = [];
     // Cursor changes overtime as new requests update it.
     let rootIds = [];
+    // locally save all mattermost employees
+    let allMembers = [];
     let cursor = req.body.cursor || null;
     const channelRecord = await slackChannelsModel.findOne({
       where: {
         slackId: req.body.channelId,
       },
     });
+
+    const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+
     const response = await getCompleteMessageHistroy(
       allMessages,
       allReplies,
@@ -148,48 +153,60 @@ const fetchAllMessageWithTreads = async (req, res) => {
     );
 
     for (let i = allMessages.length - 1; i >= 0; i--) {
-      const username = await web.users.info({
-        user: allMessages[i].user,
-      });
+      const userEmail = findEmail(allMembers, allMessages[i].user);
       if (allMessages[i].files) {
         console.log("going in files function...");
         const fetchedFiles = await fetchFromSlack(allMessages[i].files);
         console.log("This file is fetchec", fetchedFiles);
         if (fetchedFiles.length >= 1) {
-          const sendFile = await postFilesToMettermost(
-            fetchedFiles,
-            allMessages[i].text,
-            allMessages[i].ts,
-            username.user.real_name,
-            channelRecord.mattermostId,
-            false
-          );
-          console.log("This is send file Response -> ", sendFile);
-          if (allMessages[i].thread_ts && sendFile) {
-            rootIds.push({ ts: allMessages[i].thread_ts, rootId: sendFile.data.id })
+          try {
+            const sendFile = await postFilesToMettermost(
+              fetchedFiles,
+              allMessages[i].text,
+              allMembers,
+              allMessages[i].ts,
+              userEmail,
+              channelRecord.mattermostId,
+              false
+            );
+            console.log("This is send file Response -> ", sendFile);
+            if (allMessages[i].thread_ts && sendFile.data) {
+              rootIds.push({ ts: allMessages[i].thread_ts, rootId: sendFile.data.id })
+            }
+          } catch (error) {
+            console.log("Error occur during file sending -> ", error);
           }
         }
       } else {
-        let singleMessage = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
-          {
-            text: allMessages[i].text,
+        try {
+          let payload = {
+            text: appendTextWithUserName(allMessages[i].text, allMembers),
             normal_hook: true,
-            username: username.user.real_name,
+            user_email: userEmail,
             channel: channelRecord.mattermostId,
             create_at: parseInt(allMessages[i].ts * 1000)
           }
-        );
-        if (allMessages[i].thread_ts) {
-          rootIds.push({ ts: allMessages[i].thread_ts, rootId: singleMessage.data.id })
+          let singleMessage = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+            {
+              text: appendTextWithUserName(allMessages[i].text,allMembers),
+              normal_hook: true,
+              user_email: userEmail,
+              channel: channelRecord.mattermostId,
+              create_at: parseInt(allMessages[i].ts * 1000)
+            }
+          );
+          if (allMessages[i].thread_ts && singleMessage.data) {
+            rootIds.push({ ts: allMessages[i].thread_ts, rootId: singleMessage.data.id })
+          }
+        } catch (error) {
+          console.log("Error occur during message sending -> ", error);
         }
       }
     }
 
-    for (let i = allReplies.length - 1; i >= 0; i--) {
+    for (let i = 0; i < allReplies.length; i++) {
       for (let x = 1; x < allReplies[i].length; x++) {
-        const username = await web.users.info({
-          user: allReplies[i][x].user,
-        });
+        const userEmail = findEmail(allMembers, allMessages[i].user);
         const isReply = true;
         const FindRootId = rootIds.find((item) => allReplies[i][x].thread_ts === item.ts);
         if (typeof (FindRootId) !== 'undefined') {
@@ -199,27 +216,37 @@ const fetchAllMessageWithTreads = async (req, res) => {
             console.log("going in files function for thread...");
             const fetchedFiles = await fetchFromSlack(allReplies[i][x].files);
             if (fetchedFiles.length >= 1) {
-              const sendFile = await postFilesToMettermost(
-                fetchedFiles,
-                allReplies[i][x].text,
-                allMessages[i].ts,
-                username.user.real_name,
-                channelRecord.mattermostId,
-                isReply,
-                rootId
-              );
+              try {
+                const sendFileThread = await postFilesToMettermost(
+                  fetchedFiles,
+                  allReplies[i][x].text,
+                  allMembers,
+                  allMessages[i].ts,
+                  userEmail,
+                  channelRecord.mattermostId,
+                  isReply,
+                  rootId
+                );
+              } catch (error) {
+                console.log("Error occur during thread file sending -> ", error);
+              }
             }
           } else {
-            const singleReply = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
-              {
-                root_id: rootId,
-                text: allReplies[i][x].text,
-                normal_hook: true,
-                username: username.user.real_name,
-                channel: channelRecord.mattermostId,
-                create_at: parseInt(allMessages[i].ts * 1000)
-              }
-            );
+            try {
+              const singleReply = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+                {
+                  root_id: rootId,
+                  text: appendTextWithUserName(allReplies[i][x].text, allMembers),
+                  normal_hook: true,
+                  user_email: userEmail,
+                  channel: channelRecord.mattermostId,
+                  create_at: parseInt(allMessages[i].ts * 1000)
+                }
+              );
+            } catch (error) {
+              console.log("Error occur during thread message sending -> ", error);
+            }
+
           }
         }
       }
@@ -241,10 +268,83 @@ const fetchAllMessageWithTreads = async (req, res) => {
   }
 };
 
+
+const fetchAllMembersfromSlack = async (allMembers) => {
+  // fetching all members from slack 
+  let result = await web.users.list();
+  if (result.ok !== true) {
+    console.log("Error while fetching users", result);
+    fetchAllMembersfromSlack(allMembers);
+  }
+  if (result.members.length > 0) {
+    result.members.forEach((user) => {
+      allMembers.push({ name: user.name, id: user.id, email: user.profile.email })
+    })
+  }
+  return;
+}
+
+
+const appendTextWithUserName = (text, allMembers) => {
+  let checkString = indexesOf(text, /<@/g);
+  let findNames = []
+  for (let i = 0; i < checkString.length; i++) {
+    let completeId = text.substring(checkString[i], checkString[i] + 14);
+    let requiredId = text.substring(checkString[i] + 2, checkString[i] + 13);
+    let name = findName(allMembers, requiredId);
+    if (name !== false) {
+      findNames.push({ name: name, id: completeId });
+    }
+  }
+  for (let i = 0; i < findNames.length; i++) {
+    text = text.replace(findNames[i].id, findNames[i].name);
+  }
+  return text;
+}
+
+const findName = (allMembers, userId) => {
+  const user = allMembers.find((member) => {
+    return member.id === userId
+  });
+  if (typeof (user) === 'undefined') {
+    return false;
+  }
+  return '@' + user.name;
+}
+
+const findEmail = (allMembers, userId) => {
+  const user = allMembers.find((member) => {
+    return member.id === userId
+  });
+  if (typeof (user) === 'undefined') {
+    return false;
+  }
+  return user.email;
+}
+
+// This function is used to find index of user ids from slack text message
+const indexesOf = (string, regex) => {
+  let match,
+    indexes = [];
+
+  regex = new RegExp(regex);
+
+  while (match = regex.exec(string)) {
+    indexes.push(match.index);
+  }
+  return indexes;
+}
+
+
 const fetchFromSlack = async (file) => {
   return new Promise((resolve, reject) => {
     const filesFromSlack = [];
     for (let i = 0; i < file.length; i++) {
+      try {
+
+      } catch (error) {
+
+      }
       if (file[i].url_private_download && typeof (file[i].url_private_download) !== 'undefined') {
         https.get(
           file[i].url_private_download,
@@ -268,8 +368,9 @@ const fetchFromSlack = async (file) => {
 const postFilesToMettermost = async (
   fetchedFiles,
   textMessage,
+  allMembers,
   createdAt,
-  username,
+  userEmail,
   mattermostId,
   isReply,
   rootId = null
@@ -286,7 +387,7 @@ const postFilesToMettermost = async (
     // All posted files will be received in the response
 
     const instance = axios.create({
-      httpAgent: new http.Agent({ keepAlive: true }),
+      httpAgent: new https.Agent({ keepAlive: true }),
     });
 
     let responseData = await instance.post(URLsite, formData, {
@@ -304,9 +405,9 @@ const postFilesToMettermost = async (
     const response = await instance.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
       {
         root_id: isReply ? rootId : null,
-        text: textMessage,
+        text: appendTextWithUserName(textMessage, allMembers),
         normal_hook: true,
-        username: username,
+        user_email: userEmail,
         channel: mattermostId,
         file_ids: postIds,
         create_at: parseInt(createdAt * 1000)
