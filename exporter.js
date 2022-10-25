@@ -389,7 +389,7 @@ const postFilesToMettermost = async (
     fetchedFiles.map((file) => {
       formData.append("files", file);
     });
-    formData.append("channel_id", "mjkhchcykidofe9ncgtzbge3ec");
+    formData.append("channel_id", "pf4dxpf51fy4dgrzktmh9kx4sy");
     formData.append("Authorization", "Bearer " + ACCESSTOKEN);
     // All posted files will be received in the response
 
@@ -492,6 +492,15 @@ const getCompleteMessageHistroy = async (
 
 const slackMessageEv = async (ev) => {
   console.log(ev);
+  if (!ev.subtype) {
+    console.log(ev.text);
+  } else if (ev.subtype == "message_changed") {
+    console.log(
+      ev.previous_message.text + " is now --->>>>> " + ev.message.text
+    );
+  } else if (ev.subtype == "message_deleted") {
+    console.log(ev.previous_message.text + " has now been deleted!");
+  }
 };
 
 module.exports = {
