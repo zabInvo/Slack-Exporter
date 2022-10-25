@@ -312,7 +312,7 @@ const loopAndPost = async (completeMessages, postingCount) => {
       resp = await axios.post(
         BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
         {
-          text: resolveTags(currentMessage.text),
+          text: appendTextWithUserName(currentMessage.text, exporter.usersInfo),
           normal_hook: true,
           channel: exporter.mattermostName,
           create_at: parseInt(currentMessage.ts * 1000),
@@ -359,7 +359,10 @@ const loopForReplies = async (channelId, timestamp, identity) => {
             BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
             {
               root_id: identity,
-              text: resolveTags(reply.messages[ix]?.text),
+              text: appendTextWithUserName(
+                reply.messages[ix]?.text,
+                exporter.usersInfo
+              ),
               normal_hook: true,
               // username: realName,
               channel: exporter.mattermostName,
@@ -447,7 +450,10 @@ const loopForFiles = async (
         BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
         {
           root_id: isReply ? identity : null,
-          text: resolveTags(userMsg ? userMsg : " "),
+          text: appendTextWithUserName(
+            userMsg ? userMsg : " ",
+            exporter.usersInfo
+          ),
           normal_hook: true,
           // username: userName,
           channel: exporter.mattermostName,
@@ -496,64 +502,16 @@ const testMattermost = async (req, res) => {
   });
 };
 
-// const convertToName = async (userId) => {
-//   // Checks the userStore if there is already a name fetched for that id,
-//   // if there is a name, it will not call users.info API, will return userDetail from store,
-//   // if there is'nt a name, then the API will be called
-
-//   const userDetail = userStore.find((el) => el.id === userId);
-//   if (userDetail !== undefined) {
-//     return userDetail.name;
-//   } else {
-//     const userDetails = await web.users.info({
-//       user: userId,
-//     });
-
-//     userStore.push({
-//       name: userDetails.user.profile.real_name,
-//       id: userId,
-//     });
-
-//     return userDetails.user.profile.real_name;
-//   }
-
-//   // return exporter.usersInfo.find(el => el.id === id).name
-// };
-
-const resolveTags = (message) => {
-  message.split("<@").map((el, ix) => {
-    if (
-      (ix !== 0 && el.length !== 0) ||
-      (ix == 0 && message[13] === ">" && el.length !== 0)
-    ) {
-      const email = replaceWith(el.slice(0, 12));
-      message = message.replace(el.slice(0, 12), email);
-    }
-  });
-  return message.replace(new RegExp("<@", "g"), "@");
-};
-
-const replaceWith = (id) => {
-  const userId = id.substring(0, id.length - 1);
-  console.log(userId);
-  const user = exporter.usersInfo.find((el) => el.id === userId);
-  if (user) {
-    return user.name;
-  }
-  return "TAG_HERE";
-};
-
 const getEmail = (id) => {
   const user = exporter.usersInfo.find((el) => el.id === id);
-  return user.email === undefined ? "furqan@invozone.com" : user.email;
+  // return user.email === undefined ? "furqan@invozone.com" : user.email;
+  return "darab.monib@invozone.com";
 };
 
 const getChannelUsers = async (usersArr, cursor = null) => {
   const usersInfo = await web.users.list({
     cursor,
   });
-
-  usersInfo.members[0].profile.email;
 
   usersArr.push(
     ...usersInfo.members.map((el) => {
@@ -573,6 +531,56 @@ const getChannelUsers = async (usersArr, cursor = null) => {
   }
 
   return true;
+};
+
+const appendTextWithUserName = (text, allMembers) => {
+  let checkString = indexesOf(text, /<@/g);
+  let findNames = [];
+  for (let i = 0; i < checkString.length; i++) {
+    let completeId = text.substring(checkString[i], checkString[i] + 14);
+    console.log(completeId);
+    // let requiredId = text.substring(checkString[i] + 2, checkString[i] + 13);
+    let requiredId = "";
+    for (let ix = 2; ix < completeId.length; ix++) {
+      if (completeId[ix] !== ">") {
+        requiredId += completeId[ix];
+      } else {
+        break;
+      }
+    }
+    let name = findName(allMembers, requiredId);
+    if (name !== false) {
+      findNames.push({ name: name, id: "<@" + requiredId + ">" });
+    }
+  }
+  for (let i = 0; i < findNames.length; i++) {
+    console.log("replacing", findNames[i].id, "with", findNames[i].name);
+    text = text.replace(findNames[i].id, findNames[i].name);
+  }
+  return text;
+};
+
+const findName = (allMembers, userId) => {
+  const user = allMembers.find((member) => {
+    return member.id === userId;
+  });
+  if (typeof user === "undefined") {
+    return false;
+  }
+  console.log("Returning @" + user.name);
+  return "@" + user.name;
+};
+
+const indexesOf = (string, regex) => {
+  let match,
+    indexes = [];
+
+  regex = new RegExp(regex);
+
+  while ((match = regex.exec(string))) {
+    indexes.push(match.index);
+  }
+  return indexes;
 };
 
 const getUser = async (req, res) =>
