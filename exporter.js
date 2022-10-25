@@ -206,7 +206,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
 
     for (let i = 0; i < allReplies.length; i++) {
       for (let x = 1; x < allReplies[i].length; x++) {
-        const userEmail = findEmail(allMembers, allMessages[i].user);
+        const userEmail = findEmail(allMembers, allReplies[i][x].user);
         const isReply = true;
         const FindRootId = rootIds.find((item) => allReplies[i][x].thread_ts === item.ts);
         if (typeof (FindRootId) !== 'undefined') {
@@ -221,7 +221,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
                   fetchedFiles,
                   allReplies[i][x].text,
                   allMembers,
-                  allMessages[i].ts,
+                  allReplies[i][x].ts,
                   userEmail,
                   channelRecord.mattermostId,
                   isReply,
@@ -240,7 +240,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
                   normal_hook: true,
                   user_email: userEmail,
                   channel: channelRecord.mattermostId,
-                  create_at: parseInt(allMessages[i].ts * 1000)
+                  create_at: parseInt(allReplies[i][x].ts * 1000)
                 }
               );
             } catch (error) {
