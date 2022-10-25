@@ -287,20 +287,27 @@ const fetchAllMembersfromSlack = async (allMembers) => {
 
 const appendTextWithUserName = (text, allMembers) => {
   let checkString = indexesOf(text, /<@/g);
-  let findNames = []
+  let findNames = [];
   for (let i = 0; i < checkString.length; i++) {
     let completeId = text.substring(checkString[i], checkString[i] + 14);
-    let requiredId = text.substring(checkString[i] + 2, checkString[i] + 13);
+    let requiredId = "";
+    for (let ix = 2; ix < completeId.length; ix++) {
+      if (completeId[ix] !== ">") {
+        requiredId += completeId[ix];
+      } else {
+        break;
+      }
+    }
     let name = findName(allMembers, requiredId);
     if (name !== false) {
-      findNames.push({ name: name, id: completeId });
+      findNames.push({ name: name, id: "<@" + requiredId + ">" });
     }
   }
   for (let i = 0; i < findNames.length; i++) {
     text = text.replace(findNames[i].id, findNames[i].name);
   }
   return text;
-}
+};
 
 const findName = (allMembers, userId) => {
   const user = allMembers.find((member) => {
