@@ -491,15 +491,17 @@ const getCompleteMessageHistroy = async (
 };
 
 const slackMessageEv = async (ev) => {
-  console.log(ev);
+  console.log(ev.subtype);
   if (!ev.subtype) {
-    console.log(ev.text);
+    console.log('event with no type : ', ev);
   } else if (ev.subtype == "message_changed") {
     console.log(
-      ev.previous_message.text + " is now --->>>>> " + ev.message.text
+      "message_changed event --> " + JSON.stringify(ev)
     );
   } else if (ev.subtype == "message_deleted") {
-    console.log(ev.previous_message.text + " has now been deleted!");
+    console.log("message_deleted event -->" + JSON.stringify(ev));
+  }else{
+    console.log("other events" + JSON.stringify(ev));
   }
 };
 

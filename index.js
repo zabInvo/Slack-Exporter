@@ -41,6 +41,10 @@ app.use(
   })
 );
 
+// Plug the adapter in as a middleware
+// Initialize it before bodyParser 
+app.use("/slack/events", slackEvents.requestListener());
+
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -53,9 +57,6 @@ app.use(
     credentials: true,
   })
 );
-
-// Plug the adapter in as a middleware
-app.use("/slack/events", slackEvents.requestListener());
 
 app.get("/", (req, res) => {
   res.send("You land on a wrong planet, no one lives here.");
