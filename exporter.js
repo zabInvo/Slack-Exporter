@@ -134,6 +134,10 @@ const fetchAllMessageWithTreads = async (req, res) => {
     let rootIds = [];
     // locally save all mattermost employees
     let allMembers = [];
+    // Save all reaction with post ids
+    let reactions = [];
+    // locally save all mattermost user id's for reactions
+    let mattermostUserIds = [];
     let cursor = req.body.cursor || null;
     const channelRecord = await slackChannelsModel.findOne({
       where: {
@@ -142,6 +146,8 @@ const fetchAllMessageWithTreads = async (req, res) => {
     });
 
     const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+
+    const getMattermostUserId = await fetchMattermostUserIds(mattermostUserIds);
 
     const response = await getCompleteMessageHistroy(
       allMessages,
@@ -152,12 +158,13 @@ const fetchAllMessageWithTreads = async (req, res) => {
       channelRecord
     );
 
+    // Sending Messages to mattermost
     for (let i = allMessages.length - 1; i >= 0; i--) {
       const userEmail = findEmail(allMembers, allMessages[i].user);
       if (allMessages[i].files) {
         console.log("going in files function...");
         const fetchedFiles = await fetchFromSlack(allMessages[i].files);
-        console.log("This file is fetchec", fetchedFiles);
+        // console.log("This file is fetchec", fetchedFiles);
         if (fetchedFiles.length >= 1) {
           try {
             const sendFile = await postFilesToMettermost(
@@ -172,6 +179,13 @@ const fetchAllMessageWithTreads = async (req, res) => {
             console.log("This is send file Response -> ", sendFile);
             if (allMessages[i].thread_ts && sendFile.data) {
               rootIds.push({ ts: allMessages[i].thread_ts, rootId: sendFile.data.id })
+            }
+            if (allMessages[i].reactions && sendFile.data) {
+              for (let x = 0; x < allMessages[i].reactions.length; x++) {
+                for (let z = 0; z < allMessages[i].reactions[x].users.length; z++) {
+                  reactions.push({ name: allMessages[i].reactions[x].name, postId: sendFile.data.id, userId: allMessages[i].reactions[x].users[z] })
+                }
+              }
             }
           } catch (error) {
             console.log("Error occur during file sending -> ", error);
@@ -188,7 +202,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
           }
           let singleMessage = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
             {
-              text: appendTextWithUserName(allMessages[i].text,allMembers),
+              text: appendTextWithUserName(allMessages[i].text, allMembers),
               normal_hook: true,
               user_email: userEmail,
               channel: channelRecord.mattermostId,
@@ -198,12 +212,20 @@ const fetchAllMessageWithTreads = async (req, res) => {
           if (allMessages[i].thread_ts && singleMessage.data) {
             rootIds.push({ ts: allMessages[i].thread_ts, rootId: singleMessage.data.id })
           }
+          if (allMessages[i].reactions && singleMessage.data) {
+            for (let x = 0; x < allMessages[i].reactions.length; x++) {
+              for (let z = 0; z < allMessages[i].reactions[x].users.length; z++) {
+                reactions.push({ name: allMessages[i].reactions[x].name, postId: singleMessage.data.id, userId: allMessages[i].reactions[x].users[z] })
+              }
+            }
+          }
         } catch (error) {
           console.log("Error occur during message sending -> ", error);
         }
       }
     }
 
+    // Sending Replies to mattermost
     for (let i = 0; i < allReplies.length; i++) {
       for (let x = 1; x < allReplies[i].length; x++) {
         const userEmail = findEmail(allMembers, allReplies[i][x].user);
@@ -227,6 +249,13 @@ const fetchAllMessageWithTreads = async (req, res) => {
                   isReply,
                   rootId
                 );
+                if (allReplies[i][x].reactions && sendFileThread.data) {
+                  for (let y = 0; x < allReplies[i][x].reactions.length; y++) {
+                    for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
+                      reactions.push({ name: allReplies[i][x].reactions[y].name, postId: sendFileThread.data.id, userId: allReplies[i][x].reactions[y].users[z] })
+                    }
+                  }
+                }
               } catch (error) {
                 console.log("Error occur during thread file sending -> ", error);
               }
@@ -243,12 +272,38 @@ const fetchAllMessageWithTreads = async (req, res) => {
                   create_at: parseInt(allReplies[i][x].ts * 1000)
                 }
               );
+              if (allReplies[i][x].reactions && singleReply.data) {
+                for (let y = 0; y < allReplies[i][x].reactions.length; y++) {
+                  for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
+                    reactions.push({ name: allReplies[i][x].reactions[y].name, postId: singleReply.data.id, userId: allReplies[i][x].reactions[y].users[z] })
+                  }
+                }
+              }
             } catch (error) {
               console.log("Error occur during thread message sending -> ", error);
             }
-
           }
         }
+      }
+    }
+
+    // Sending Reactions to mattermost
+    for (let i = 0; i < reactions.length; i++) {
+      try {
+        const sendRections = await axios.post(BASEURL + "/api/v4/reactions",
+          {
+            emoji_name: reactions[i].name,
+            post_id: reactions[i].postId,
+            user_id: getUserMattermostId(reactions[i].userId, mattermostUserIds, allMembers),
+          },
+          {
+            headers: {
+              Authorization: "Bearer " + ACCESSTOKEN,
+            },
+          }
+        );
+      } catch (error) {
+        console.log("Error occur during reaction sending -> ", error);
       }
     }
 
@@ -284,6 +339,32 @@ const fetchAllMembersfromSlack = async (allMembers) => {
   return;
 }
 
+const fetchMattermostUserIds = async (mattermostUserIds) => {
+  // fetching all members from mattermost server 
+  let result = await axios.get(BASEURL + "/hooks/GetAllUserIds");
+  if (result.status !== 200) {
+    console.log("Error while fetching users from mattermost", result);
+    fetchMattermostUserIds(mattermostUserIds);
+  }
+  if (result.data.response.length > 0) {
+    result.data.response.forEach((user) => {
+      mattermostUserIds.push(user);
+    })
+  }
+  console.log('mattermostUserIds', mattermostUserIds);
+  return;
+}
+
+const getUserMattermostId = (userId, mattermostUserIds, allMembers) => {
+  const userEmail = findEmail(allMembers, userId);
+  const mattermostId = mattermostUserIds.find((item) => {
+    return item.email == userEmail
+  })
+  if (typeof (mattermostId) === 'undefined') {
+    return '';
+  }
+  return mattermostId.id;
+}
 
 const appendTextWithUserName = (text, allMembers) => {
   let checkString = indexesOf(text, /<@/g);
@@ -500,7 +581,7 @@ const slackMessageEv = async (ev) => {
     );
   } else if (ev.subtype == "message_deleted") {
     console.log("message_deleted event -->" + JSON.stringify(ev));
-  }else{
+  } else {
     console.log("other events" + JSON.stringify(ev));
   }
 };
