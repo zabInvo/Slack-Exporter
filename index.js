@@ -95,6 +95,9 @@ app.get("/api/logout", (req, res) => {
 
 // Slack Message Listener.
 slackEvents.on("message", slackMessageEv);
+slackEvents.on("reaction_added",slackMessageEv);
+slackEvents.on("reaction_removed",slackMessageEv);
+
 
 // Socket.io Configuration 
 const io = socketIo(server, {

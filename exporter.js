@@ -193,13 +193,6 @@ const fetchAllMessageWithTreads = async (req, res) => {
         }
       } else {
         try {
-          let payload = {
-            text: appendTextWithUserName(allMessages[i].text, allMembers),
-            normal_hook: true,
-            user_email: userEmail,
-            channel: channelRecord.mattermostId,
-            create_at: parseInt(allMessages[i].ts * 1000)
-          }
           let singleMessage = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
             {
               text: appendTextWithUserName(allMessages[i].text, allMembers),
@@ -571,10 +564,22 @@ const getCompleteMessageHistroy = async (
   return result;
 };
 
+
+
+// Slack Event Functionalities  For Real Time Updates
+
 const slackMessageEv = async (ev) => {
   console.log(ev.subtype);
+  if (ev.type == 'message') {
+    if (ev.thread_ts) {
+      console.log("This is thread messages");
+    }
+    else {
+      await sendRealTimeMessage(ev);
+    }
+  }
   if (!ev.subtype) {
-    console.log('event with no type : ', ev);
+    console.log("no subtype event" + JSON.stringify(ev));
   } else if (ev.subtype == "message_changed") {
     console.log(
       "message_changed event --> " + JSON.stringify(ev)
@@ -585,6 +590,60 @@ const slackMessageEv = async (ev) => {
     console.log("other events" + JSON.stringify(ev));
   }
 };
+
+// This function is used to send single message through slack events
+const sendRealTimeMessage = async (message) => {
+  let allMembers = [];
+  const channelRecord = await slackChannelsModel.findOne({
+    where: {
+      slackId: message.channel,
+    },
+  });
+  if (channelRecord && channelRecord.mattermostId && channelRecord.status === 'Completed') {
+    const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+    const userEmail = findEmail(allMembers, message.user);
+    if (message.files) {
+      console.log("EV -> going in files function...");
+      const fetchedFiles = await fetchFromSlack(message.files);
+      if (fetchedFiles.length >= 1) {
+        try {
+          const sendFile = await postFilesToMettermost(
+            fetchedFiles,
+            message.text,
+            allMembers,
+            message.ts,
+            userEmail,
+            channelRecord.mattermostId,
+            false
+          );
+          console.log("EV : This is send file Response -> Sent Successfully");
+        } catch (error) {
+          console.log("EV : Error occur during file sending -> ", error);
+        }
+      }
+    } else {
+      try {
+        let singleMessage = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+          {
+            text: appendTextWithUserName(message.text, allMembers),
+            normal_hook: true,
+            user_email: userEmail,
+            channel: channelRecord.mattermostId,
+            create_at: parseInt(message.ts * 1000)
+          }
+        );
+        console.log("EV : This is singleMessageResponse ->  Sent Successfully");
+      } catch (error) {
+        console.log("EV : Error occur during message sending -> ", error);
+      }
+    }
+    return;
+  }
+  else {
+    console.log(`EV -> Unable to send message : forwording id : ${channelRecord.mattermostId} |  status : ${channelRecord.status}`)
+    return;
+  }
+}
 
 module.exports = {
   findChannels,
