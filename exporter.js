@@ -5,7 +5,6 @@ const { WebClient } = require("@slack/web-api");
 const axios = require("axios");
 const https = require("https");
 const FormData = require("form-data");
-const fs = require("fs");
 
 const token = process.env.SLACK_USER_TOKEN;
 const web = new WebClient(token);
@@ -49,6 +48,7 @@ const findChannels = async (req, res) => {
         "mattermostId",
         "lastUpdatedAt",
         "lastCursor",
+        "syncStartedAt",
         "type",
         "membersCount",
         "creationDate",
@@ -193,6 +193,10 @@ const fetchAllMessageWithTreads = async (req, res) => {
               let rootId = sendFile.data.id;
               await sendReplyToMattermost(allReplies, rootId, allMembers, channelRecord, parentId, reactions);
             }
+            if (allMessages[i].pinned_to && sendFile.data) {
+              let postId = sendFile.data.id;
+              await sendIsPinnedToMattermost(postId);
+            }
             if (allMessages[i].reactions && sendFile.data) {
               for (let x = 0; x < allMessages[i].reactions.length; x++) {
                 for (let z = 0; z < allMessages[i].reactions[x].users.length; z++) {
@@ -220,6 +224,10 @@ const fetchAllMessageWithTreads = async (req, res) => {
             let parentId = allMessages[i].thread_ts;
             let rootId = singleMessage.data.id;
             await sendReplyToMattermost(allReplies, rootId, allMembers, channelRecord, parentId, reactions);
+          }
+          if (allMessages[i].pinned_to && singleMessage.data) {
+            let postId = singleMessage.data.id;
+            await sendIsPinnedToMattermost(postId);
           }
           if (allMessages[i].reactions && singleMessage.data) {
             for (let x = 0; x < allMessages[i].reactions.length; x++) {
@@ -295,6 +303,10 @@ const sendReplyToMattermost = async (allReplies, rootId, allMembers, channelReco
                 isReply,
                 rootId
               );
+              if (allReplies[i][x].pinned_to && sendFileThread.data) {
+                let postId = sendFileThread.data.id;
+                await sendIsPinnedToMattermost(postId);
+              }
               if (allReplies[i][x].reactions && sendFileThread.data) {
                 for (let y = 0; x < allReplies[i][x].reactions.length; y++) {
                   for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
@@ -319,6 +331,10 @@ const sendReplyToMattermost = async (allReplies, rootId, allMembers, channelReco
                 source_post_id: allReplies[i][x].ts
               }
             );
+            if (allReplies[i][x].pinned_to && singleReply.data) {
+              let postId = singleReply.data.id;
+              await sendIsPinnedToMattermost(postId);
+            }
             if (allReplies[i][x].reactions && singleReply.data) {
               for (let y = 0; y < allReplies[i][x].reactions.length; y++) {
                 for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
@@ -336,6 +352,22 @@ const sendReplyToMattermost = async (allReplies, rootId, allMembers, channelReco
   return;
 }
 
+const sendIsPinnedToMattermost = async (id, isEvent = false) => {
+  try {
+    let postId = id;
+    if (isEvent) {
+      postId = await getMattermostPostId(id);
+    }
+    let sendPinned = await axios.post(BASEURL + `/api/v4/posts/${postId}/pin`, null, {
+      headers: {
+        Authorization: "Bearer " + ACCESSTOKEN,
+      },
+    });
+  } catch (error) {
+    console.log("Error occur during Pinned message sending -> ", error);
+  }
+  return;
+}
 
 const fetchAllMembersfromSlack = async (allMembers, cursor = null) => {
   // fetching all members from slack 
@@ -619,6 +651,9 @@ const slackMessageEv = async (ev) => {
     await updateRealTimeMessage(ev);
   } else if (ev.subtype === "message_deleted") {
     await deleteRealTimeMessage(ev);
+  } else if (ev.type === "pin_added") {
+    await sendIsPinnedToMattermost(ev.item.message.ts, true);
+    console.log("Pin added", ev);
   } else {
     console.log("other events" + JSON.stringify(ev));
   }

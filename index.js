@@ -99,6 +99,7 @@ app.get("/api/logout", (req, res) => {
 slackEvents.on("message", slackMessageEv);
 slackEvents.on("reaction_added",slackMessageEv);
 slackEvents.on("reaction_removed",slackMessageEv);
+slackEvents.on("pin_added",slackMessageEv);
 
 
 // Socket.io Configuration 
