@@ -46,11 +46,9 @@ const findChannels = async (req, res) => {
       attributes: [
         "name",
         "slackId",
-        "mattermostName",
         "mattermostId",
         "lastUpdatedAt",
         "lastCursor",
-        "forwardUrl",
         "type",
         "membersCount",
         "creationDate",
@@ -99,6 +97,22 @@ const fetchMessageThread = async (req, res) => {
   }
 };
 
+const updateMapping = async (req, res) => {
+  try {
+    const record = await slackChannelsModel.findOne({
+      where: { slackId: req.body.id },
+    });
+    if (record) {
+      await record.update({
+        mattermostId: req.body.mattermostName,
+      });
+      res.status(200).json({ data: "Channel mapped successfully!" });
+    }
+  } catch (error) {
+    res.status(500).json({ messages: "Internal Server Error", error: error });
+  }
+};
+
 const syncHistroy = async (req, res) => {
   try {
     const channelRecord = await slackChannelsModel.findOne({
@@ -106,7 +120,8 @@ const syncHistroy = async (req, res) => {
         slackId: req.body.channelId,
       },
     });
-    await channelRecord.update({ status: "Pending" });
+    const date = new Date();
+    await channelRecord.update({ status: "Pending", syncStartedAt: date });
     fetchAllMessageWithTreads(req, res);
     res.status(200).json({ data: "Syncing start successfully!" });
   } catch (error) {
@@ -130,8 +145,6 @@ const fetchAllMessageWithTreads = async (req, res) => {
     let allMessages = [];
     // Complete replies being stored into an array.
     let allReplies = [];
-    // Cursor changes overtime as new requests update it.
-    let rootIds = [];
     // locally save all mattermost employees
     let allMembers = [];
     // Save all reaction with post ids
@@ -144,7 +157,6 @@ const fetchAllMessageWithTreads = async (req, res) => {
         slackId: req.body.channelId,
       },
     });
-
     const getAllMembers = await fetchAllMembersfromSlack(allMembers);
 
     const getMattermostUserId = await fetchMattermostUserIds(mattermostUserIds);
@@ -176,14 +188,15 @@ const fetchAllMessageWithTreads = async (req, res) => {
               channelRecord.mattermostId,
               false
             );
-            console.log("This is send file Response -> ", sendFile);
             if (allMessages[i].thread_ts && sendFile.data) {
-              rootIds.push({ ts: allMessages[i].thread_ts, rootId: sendFile.data.id })
+              let parentId = allMessages[i].thread_ts;
+              let rootId = sendFile.data.id;
+              await sendReplyToMattermost(allReplies, rootId, allMembers, channelRecord, parentId, reactions);
             }
             if (allMessages[i].reactions && sendFile.data) {
               for (let x = 0; x < allMessages[i].reactions.length; x++) {
                 for (let z = 0; z < allMessages[i].reactions[x].users.length; z++) {
-                  reactions.push({ name: allMessages[i].reactions[x].name, postId: sendFile.data.id, userId: allMessages[i].reactions[x].users[z] })
+                  reactions.push({ name: allMessages[i].reactions[x].name, postId: sendFile.data.id, userId: allMessages[i].reactions[x].users[z], slackId: allMessages[i].ts })
                 }
               }
             }
@@ -199,83 +212,24 @@ const fetchAllMessageWithTreads = async (req, res) => {
               normal_hook: true,
               user_email: userEmail,
               channel: channelRecord.mattermostId,
-              create_at: parseInt(allMessages[i].ts * 1000)
+              create_at: parseInt(allMessages[i].ts * 1000),
+              source_post_id: allMessages[i].ts
             }
           );
           if (allMessages[i].thread_ts && singleMessage.data) {
-            rootIds.push({ ts: allMessages[i].thread_ts, rootId: singleMessage.data.id })
+            let parentId = allMessages[i].thread_ts;
+            let rootId = singleMessage.data.id;
+            await sendReplyToMattermost(allReplies, rootId, allMembers, channelRecord, parentId, reactions);
           }
           if (allMessages[i].reactions && singleMessage.data) {
             for (let x = 0; x < allMessages[i].reactions.length; x++) {
               for (let z = 0; z < allMessages[i].reactions[x].users.length; z++) {
-                reactions.push({ name: allMessages[i].reactions[x].name, postId: singleMessage.data.id, userId: allMessages[i].reactions[x].users[z] })
+                reactions.push({ name: allMessages[i].reactions[x].name, postId: singleMessage.data.id, userId: allMessages[i].reactions[x].users[z], slackId: allMessages[i].ts })
               }
             }
           }
         } catch (error) {
           console.log("Error occur during message sending -> ", error);
-        }
-      }
-    }
-
-    // Sending Replies to mattermost
-    for (let i = 0; i < allReplies.length; i++) {
-      for (let x = 1; x < allReplies[i].length; x++) {
-        const userEmail = findEmail(allMembers, allReplies[i][x].user);
-        const isReply = true;
-        const FindRootId = rootIds.find((item) => allReplies[i][x].thread_ts === item.ts);
-        if (typeof (FindRootId) !== 'undefined') {
-          const rootId = FindRootId.rootId;
-          console.log("This is root for this thread", rootId);
-          if (allReplies[i][x].files) {
-            console.log("going in files function for thread...");
-            const fetchedFiles = await fetchFromSlack(allReplies[i][x].files);
-            if (fetchedFiles.length >= 1) {
-              try {
-                const sendFileThread = await postFilesToMettermost(
-                  fetchedFiles,
-                  allReplies[i][x].text,
-                  allMembers,
-                  allReplies[i][x].ts,
-                  userEmail,
-                  channelRecord.mattermostId,
-                  isReply,
-                  rootId
-                );
-                if (allReplies[i][x].reactions && sendFileThread.data) {
-                  for (let y = 0; x < allReplies[i][x].reactions.length; y++) {
-                    for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
-                      reactions.push({ name: allReplies[i][x].reactions[y].name, postId: sendFileThread.data.id, userId: allReplies[i][x].reactions[y].users[z] })
-                    }
-                  }
-                }
-              } catch (error) {
-                console.log("Error occur during thread file sending -> ", error);
-              }
-            }
-          } else {
-            try {
-              const singleReply = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
-                {
-                  root_id: rootId,
-                  text: appendTextWithUserName(allReplies[i][x].text, allMembers),
-                  normal_hook: true,
-                  user_email: userEmail,
-                  channel: channelRecord.mattermostId,
-                  create_at: parseInt(allReplies[i][x].ts * 1000)
-                }
-              );
-              if (allReplies[i][x].reactions && singleReply.data) {
-                for (let y = 0; y < allReplies[i][x].reactions.length; y++) {
-                  for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
-                    reactions.push({ name: allReplies[i][x].reactions[y].name, postId: singleReply.data.id, userId: allReplies[i][x].reactions[y].users[z] })
-                  }
-                }
-              }
-            } catch (error) {
-              console.log("Error occur during thread message sending -> ", error);
-            }
-          }
         }
       }
     }
@@ -288,6 +242,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
             emoji_name: reactions[i].name,
             post_id: reactions[i].postId,
             user_id: getUserMattermostId(reactions[i].userId, mattermostUserIds, allMembers),
+            source_post_id: reactions[i].slackId
           },
           {
             headers: {
@@ -317,9 +272,77 @@ const fetchAllMessageWithTreads = async (req, res) => {
 };
 
 
-const fetchAllMembersfromSlack = async (allMembers) => {
+const sendReplyToMattermost = async (allReplies, rootId, allMembers, channelRecord, parentId, reactions) => {
+  for (let i = 0; i < allReplies.length; i++) {
+    for (let x = 1; x < allReplies[i].length; x++) {
+      if (allReplies[i][x].thread_ts != parentId) {
+        break;
+      } else if (allReplies[i][x].thread_ts === parentId) {
+        const userEmail = findEmail(allMembers, allReplies[i][x].user);
+        let isReply = true;
+        if (allReplies[i][x].files) {
+          console.log("going in files function for thread...");
+          const fetchedFiles = await fetchFromSlack(allReplies[i][x].files);
+          if (fetchedFiles.length >= 1) {
+            try {
+              const sendFileThread = await postFilesToMettermost(
+                fetchedFiles,
+                allReplies[i][x].text,
+                allMembers,
+                allReplies[i][x].ts,
+                userEmail,
+                channelRecord.mattermostId,
+                isReply,
+                rootId
+              );
+              if (allReplies[i][x].reactions && sendFileThread.data) {
+                for (let y = 0; x < allReplies[i][x].reactions.length; y++) {
+                  for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
+                    reactions.push({ name: allReplies[i][x].reactions[y].name, postId: sendFileThread.data.id, userId: allReplies[i][x].reactions[y].users[z], slackId: allReplies[i][x].ts })
+                  }
+                }
+              }
+            } catch (error) {
+              console.log("Error occur during thread file sending -> ", error);
+            }
+          }
+        } else {
+          try {
+            const singleReply = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
+              {
+                root_id: rootId,
+                text: appendTextWithUserName(allReplies[i][x].text, allMembers),
+                normal_hook: true,
+                user_email: userEmail,
+                channel: channelRecord.mattermostId,
+                create_at: parseInt(allReplies[i][x].ts * 1000),
+                source_post_id: allReplies[i][x].ts
+              }
+            );
+            if (allReplies[i][x].reactions && singleReply.data) {
+              for (let y = 0; y < allReplies[i][x].reactions.length; y++) {
+                for (let z = 0; z < allReplies[i][x].reactions[y].users.length; z++) {
+                  reactions.push({ name: allReplies[i][x].reactions[y].name, postId: singleReply.data.id, userId: allReplies[i][x].reactions[y].users[z], slackId: allReplies[i][x].ts })
+                }
+              }
+            }
+          } catch (error) {
+            console.log("Error occur during thread message sending -> ", error);
+          }
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+const fetchAllMembersfromSlack = async (allMembers, cursor = null) => {
   // fetching all members from slack 
-  let result = await web.users.list();
+  let result = await web.users.list({
+    limit: 100,
+    cursor: cursor
+  });
   if (result.ok !== true) {
     console.log("Error while fetching users", result);
     fetchAllMembersfromSlack(allMembers);
@@ -328,6 +351,9 @@ const fetchAllMembersfromSlack = async (allMembers) => {
     result.members.forEach((user) => {
       allMembers.push({ name: user.name, id: user.id, email: user.profile.email })
     })
+  }
+  if (result.response_metadata.next_cursor !== '') {
+    await fetchAllMembersfromSlack(allMembers, result.response_metadata.next_cursor);
   }
   return;
 }
@@ -344,7 +370,6 @@ const fetchMattermostUserIds = async (mattermostUserIds) => {
       mattermostUserIds.push(user);
     })
   }
-  console.log('mattermostUserIds', mattermostUserIds);
   return;
 }
 
@@ -454,7 +479,7 @@ const postFilesToMettermost = async (
   userEmail,
   mattermostId,
   isReply,
-  rootId = null
+  rootId = null,
 ) => {
   try {
     const URLsite = BASEURL + "/api/v4/files";
@@ -491,7 +516,8 @@ const postFilesToMettermost = async (
         user_email: userEmail,
         channel: mattermostId,
         file_ids: postIds,
-        create_at: parseInt(createdAt * 1000)
+        create_at: parseInt(createdAt * 1000),
+        source_post_id: createdAt
       },
       {
         maxContentLength: Infinity,
@@ -566,44 +592,86 @@ const getCompleteMessageHistroy = async (
 
 
 
-// Slack Event Functionalities  For Real Time Updates
+//  !-----------------  Slack Event Functionalities  For Real Time Updates   -----------------!
+
+let globalAllMembers = [];
+const fetchAllMembersOnMount = async () => {
+  await fetchAllMembersfromSlack(globalAllMembers);
+  console.log("Slack Users", globalAllMembers);
+}
+// Fetching All Slack Members From Slack On Application Start
+fetchAllMembersOnMount();
 
 const slackMessageEv = async (ev) => {
-  console.log(ev.subtype);
-  if (ev.type == 'message') {
+  // console.log(ev.subtype);
+  if ((ev.type === 'message' && !ev.subtype) || (ev.type === 'message' && ev.subtype === "file_share")) {
     if (ev.thread_ts) {
-      console.log("This is thread messages");
+      await sendRealTimeMessage(ev, true, false);
     }
     else {
-      await sendRealTimeMessage(ev);
+      await sendRealTimeMessage(ev, false, false);
     }
   }
-  if (!ev.subtype) {
-    console.log("no subtype event" + JSON.stringify(ev));
-  } else if (ev.subtype == "message_changed") {
-    console.log(
-      "message_changed event --> " + JSON.stringify(ev)
-    );
-  } else if (ev.subtype == "message_deleted") {
-    console.log("message_deleted event -->" + JSON.stringify(ev));
+  if (ev.type === 'reaction_added') {
+    await sendRealTimeMessage(ev, false, true);
+  }
+  else if (ev.subtype === "message_changed") {
+    await updateRealTimeMessage(ev);
+  } else if (ev.subtype === "message_deleted") {
+    await deleteRealTimeMessage(ev);
   } else {
     console.log("other events" + JSON.stringify(ev));
   }
 };
 
 // This function is used to send single message through slack events
-const sendRealTimeMessage = async (message) => {
-  let allMembers = [];
+const sendRealTimeMessage = async (message, isReply, isReaction) => {
   const channelRecord = await slackChannelsModel.findOne({
     where: {
-      slackId: message.channel,
+      slackId: isReaction ? message.item.channel : message.channel,
     },
   });
   if (channelRecord && channelRecord.mattermostId && channelRecord.status === 'Completed') {
-    const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+    console.log("This is RT messages", message);
+    let rootId = null;
+    let mattermostPostId = null;
+    let allMembers = globalAllMembers;
+    if (allMembers.length <= 0) {
+      let allMembers = [];
+      const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+      console.log("Re-calling Slack Members Api", allMembers);
+    }
+    if (isReply) {
+      rootId = message.thread_ts;
+      mattermostPostId = await getMattermostPostId(rootId);
+    }
+    else if (isReaction) {
+      rootId = message.item.ts;
+      mattermostPostId = await getMattermostPostId(rootId);
+    }
     const userEmail = findEmail(allMembers, message.user);
-    if (message.files) {
-      console.log("EV -> going in files function...");
+    if (isReaction) {
+      let mattermostUserIds = [];
+      const getMattermostUserId = await fetchMattermostUserIds(mattermostUserIds);
+      try {
+        const sendRections = await axios.post(BASEURL + "/api/v4/reactions",
+          {
+            emoji_name: message.reaction,
+            post_id: mattermostPostId,
+            user_id: getUserMattermostId(message.user, mattermostUserIds, allMembers),
+            source_post_id: message.event_ts
+          },
+          {
+            headers: {
+              Authorization: "Bearer " + ACCESSTOKEN,
+            },
+          })
+      } catch (error) {
+        console.log("RT : Error occur during reaction sending -> ", error);
+      }
+    }
+    else if (message.files) {
+      console.log("RT -> going in files function...");
       const fetchedFiles = await fetchFromSlack(message.files);
       if (fetchedFiles.length >= 1) {
         try {
@@ -614,35 +682,147 @@ const sendRealTimeMessage = async (message) => {
             message.ts,
             userEmail,
             channelRecord.mattermostId,
-            false
+            isReply,
+            mattermostPostId
           );
-          console.log("EV : This is send file Response -> Sent Successfully");
+          console.log("RT : This is send file Response -> Sent Successfully");
         } catch (error) {
-          console.log("EV : Error occur during file sending -> ", error);
+          console.log("RT : Error occur during file sending -> ", error);
         }
       }
     } else {
       try {
         let singleMessage = await axios.post(BASEURL + "/hooks/16988a5j1pbabpdyxfiogh6o4h",
           {
+            root_id: isReply ? mattermostPostId : () => { },
             text: appendTextWithUserName(message.text, allMembers),
             normal_hook: true,
             user_email: userEmail,
             channel: channelRecord.mattermostId,
-            create_at: parseInt(message.ts * 1000)
+            create_at: parseInt(message.ts * 1000),
+            source_post_id: message.ts
           }
         );
-        console.log("EV : This is singleMessageResponse ->  Sent Successfully");
+        console.log("RT : This is singleMessageResponse ->  Sent Successfully", singleMessage);
       } catch (error) {
-        console.log("EV : Error occur during message sending -> ", error);
+        console.log("RT : Error occur during message sending -> ", error);
       }
     }
     return;
   }
   else {
-    console.log(`EV -> Unable to send message : forwording id : ${channelRecord.mattermostId} |  status : ${channelRecord.status}`)
+    console.log(`RT -> Unable to send message no channel record found`)
     return;
   }
+}
+
+const updateRealTimeMessage = async (ev) => {
+  const channelRecord = await slackChannelsModel.findOne({
+    where: {
+      slackId: ev.channel,
+    },
+  });
+  if (channelRecord && channelRecord.mattermostId && channelRecord.status === 'Completed') {
+    console.log("Update", ev);
+    if (ev.message.text === 'This message was deleted.') {
+      await deleteRealTimeMessage(ev)
+      return;
+    }
+    if (ev.message?.edited?.ts) {
+      let rootId = ev.message.ts;
+      let mattermostPostId = null;
+      let allMembers = globalAllMembers;
+      if (allMembers.length <= 0) {
+        let allMembers = [];
+        const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+      }
+      mattermostPostId = await getMattermostPostId(rootId);
+      try {
+        const updateMessage = await axios.put(BASEURL + `/api/v4/posts/${mattermostPostId}/patch`,
+          {
+            channel_id: channelRecord.mattermostId,
+            message: appendTextWithUserName(ev.message.text, allMembers),
+            id: mattermostPostId
+          },
+          {
+            headers: {
+              Authorization: "Bearer " + ACCESSTOKEN,
+            },
+          }
+        );
+        console.log("Message Updated Successfully");
+      } catch (error) {
+        console.log("Error While Updating Message", error);
+      }
+      return;
+    }
+  }
+  console.log("No id found for updating message");
+  return;
+}
+
+const deleteRealTimeMessage = async (ev) => {
+  const channelRecord = await slackChannelsModel.findOne({
+    where: {
+      slackId: ev.channel,
+    },
+  });
+  if (channelRecord && channelRecord.mattermostId && channelRecord.status === 'Completed') {
+    console.log("delete", ev);
+    let rootId = ev.previous_message?.ts || null;
+    let mattermostPostId = null;
+    let allMembers = globalAllMembers;
+    if (allMembers.length <= 0) {
+      let allMembers = [];
+      const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+    }
+    mattermostPostId = await getMattermostPostId(rootId);
+    try {
+      const updateMessage = await axios.delete(BASEURL + `/api/v4/posts/${mattermostPostId}`,
+        {
+          headers: {
+            Authorization: "Bearer " + ACCESSTOKEN,
+          },
+        }
+      );
+      console.log("Message deleted Successfully");
+    } catch (error) {
+      console.log("Error While deleting Message", error);
+    }
+    return;
+  }
+  console.log("No record found for deleting message");
+  return;
+}
+
+// Utilty Function is used get the post id from mattermost using slack id
+const getMattermostPostId = async (rootId) => {
+  let retry = 0;
+  let mattermostId = null;
+  while (retry <= 10) {
+    let result = await axios.post(BASEURL + "/hooks/GetSlackToMMPostId",
+      {
+        source_post_id: rootId
+      },
+      {
+        headers: {
+          Authorization: "Bearer " + ACCESSTOKEN,
+        },
+      });
+    if (result.data.mmid) {
+      mattermostId = result.data.mmid;
+      return mattermostId;
+    }
+    await sleep(5000);
+    retry = retry + 1;
+  }
+  return mattermostId
+}
+
+const sleep = (ms) => {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 module.exports = {
@@ -650,6 +830,7 @@ module.exports = {
   fetchConversationHistroy,
   fetchMessageThread,
   fetchAllMessageWithTreads,
+  updateMapping,
   slackMessageEv,
   syncHistroy,
 };

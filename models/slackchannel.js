@@ -16,14 +16,13 @@ module.exports = (sequelize, DataTypes) => {
   SlackChannel.init({
     name: DataTypes.STRING,
     slackId: DataTypes.STRING,
-    mattermostName: DataTypes.STRING,
     mattermostId : DataTypes.STRING,
-    forwardUrl : DataTypes.STRING,
     lastCursor : DataTypes.STRING,
     type : DataTypes.STRING,
     membersCount : DataTypes.STRING,
     creationDate : DataTypes.STRING,
     lastUpdatedAt : DataTypes.DATE,
+    syncStartedAt : DataTypes.DATE,
     status : DataTypes.STRING
   }, {
     sequelize,
