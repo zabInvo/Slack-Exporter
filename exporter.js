@@ -363,8 +363,58 @@ const sendIsPinnedToMattermost = async (id, isEvent = false) => {
         Authorization: "Bearer " + ACCESSTOKEN,
       },
     });
+    console.log("Pin send successfuly", sendPinned);
   } catch (error) {
     console.log("Error occur during Pinned message sending -> ", error);
+  }
+  return;
+}
+
+const sendUnPinnedToMattermost = async (id) => {
+  try {
+    let postId = id;
+    postId = await getMattermostPostId(id);
+    let sendUnPinned = await axios.post(BASEURL + `/api/v4/posts/${postId}/unpin`, null, {
+      headers: {
+        Authorization: "Bearer " + ACCESSTOKEN,
+      },
+    });
+    console.log("UnPined send successfuly", sendUnPinned);
+  } catch (error) {
+    console.log("Error occur during UnPinned message sending -> ", error);
+  }
+  return;
+}
+
+const removeReactionFromMattermost = async (event) => {
+  const channelRecord = await slackChannelsModel.findOne({
+    where: {
+      slackId: event.item.channel,
+    },
+  });
+  if (channelRecord && channelRecord.mattermostId && channelRecord.status === 'Completed') {
+    console.log("reaction removed :", event);
+    try {
+      let allMembers = globalAllMembers;
+      let mattermostUserIds = globalAllMattermostUserIds;
+
+      if (allMembers.length <= 0) {
+        const getAllMembers = await fetchAllMembersfromSlack(allMembers);
+      }
+      if (mattermostUserIds.length <= 0) {
+        const getMattermostUserId = await fetchMattermostUserIds(mattermostUserIds);
+      }
+      const userId = getUserMattermostId(event.user, mattermostUserIds, allMembers);
+      const postId = await getMattermostPostId(event.item.ts);
+      const removeReaction = await axios.delete(BASEURL + `/api/v4/users/${userId}/posts/${postId}/reactions/${event.reaction}`,
+        {
+          headers: {
+            Authorization: "Bearer " + ACCESSTOKEN,
+          }
+        });
+    } catch (error) {
+      console.log("Error while removing reaction", error);
+    }
   }
   return;
 }
@@ -631,8 +681,17 @@ const fetchAllMembersOnMount = async () => {
   await fetchAllMembersfromSlack(globalAllMembers);
   console.log("Slack Users", globalAllMembers);
 }
+
+let globalAllMattermostUserIds = []
+const fetchAllMattermostUserIds = async () => {
+  await fetchMattermostUserIds(globalAllMattermostUserIds);;
+}
+
 // Fetching All Slack Members From Slack On Application Start
 fetchAllMembersOnMount();
+
+// Fetching All Mattermost User Ids From Mattermost On Application Start
+fetchAllMattermostUserIds();
 
 const slackMessageEv = async (ev) => {
   // console.log(ev.subtype);
@@ -647,13 +706,17 @@ const slackMessageEv = async (ev) => {
   if (ev.type === 'reaction_added') {
     await sendRealTimeMessage(ev, false, true);
   }
-  else if (ev.subtype === "message_changed") {
+  else if (ev.type === "reaction_removed") {
+    await removeReactionFromMattermost(ev);
+  } else if (ev.subtype === "message_changed") {
     await updateRealTimeMessage(ev);
   } else if (ev.subtype === "message_deleted") {
     await deleteRealTimeMessage(ev);
   } else if (ev.type === "pin_added") {
     await sendIsPinnedToMattermost(ev.item.message.ts, true);
     console.log("Pin added", ev);
+  } else if (ev.type === "pin_removed") {
+    await sendUnPinnedToMattermost(ev.item.message.ts);
   } else {
     console.log("other events" + JSON.stringify(ev));
   }
@@ -672,7 +735,6 @@ const sendRealTimeMessage = async (message, isReply, isReaction) => {
     let mattermostPostId = null;
     let allMembers = globalAllMembers;
     if (allMembers.length <= 0) {
-      let allMembers = [];
       const getAllMembers = await fetchAllMembersfromSlack(allMembers);
       console.log("Re-calling Slack Members Api", allMembers);
     }
@@ -686,8 +748,10 @@ const sendRealTimeMessage = async (message, isReply, isReaction) => {
     }
     const userEmail = findEmail(allMembers, message.user);
     if (isReaction) {
-      let mattermostUserIds = [];
-      const getMattermostUserId = await fetchMattermostUserIds(mattermostUserIds);
+      let mattermostUserIds = globalAllMattermostUserIds;
+      if (mattermostUserIds.length <= 0) {
+        const getMattermostUserId = await fetchMattermostUserIds(mattermostUserIds);
+      }
       try {
         const sendRections = await axios.post(BASEURL + "/api/v4/reactions",
           {
@@ -768,7 +832,6 @@ const updateRealTimeMessage = async (ev) => {
       let mattermostPostId = null;
       let allMembers = globalAllMembers;
       if (allMembers.length <= 0) {
-        let allMembers = [];
         const getAllMembers = await fetchAllMembersfromSlack(allMembers);
       }
       mattermostPostId = await getMattermostPostId(rootId);
@@ -808,7 +871,6 @@ const deleteRealTimeMessage = async (ev) => {
     let mattermostPostId = null;
     let allMembers = globalAllMembers;
     if (allMembers.length <= 0) {
-      let allMembers = [];
       const getAllMembers = await fetchAllMembersfromSlack(allMembers);
     }
     mattermostPostId = await getMattermostPostId(rootId);

@@ -100,6 +100,7 @@ slackEvents.on("message", slackMessageEv);
 slackEvents.on("reaction_added",slackMessageEv);
 slackEvents.on("reaction_removed",slackMessageEv);
 slackEvents.on("pin_added",slackMessageEv);
+slackEvents.on("pin_removed",slackMessageEv);
 
 
 // Socket.io Configuration 
