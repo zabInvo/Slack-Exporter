@@ -130,6 +130,22 @@ const syncHistroy = async (req, res) => {
   }
 };
 
+const sendWebhookToMattermost = async (message, url, payload, response) => {
+  try {
+    let webhook = await axios.post(BASEURL + "/hooks/63dayqezmtnkxphq8696d5cbmh",
+      {
+        channel_id: "63dayqezmtnkxphq8696d5cbmh",
+        text: message,
+        props: {
+          card: `** Request URL : **  ${url} \n\n ** Request Payload : **  \n\n  ${payload} \n\n ** Response : **  \n\n ${response}`
+        }
+      }
+    );
+  } catch (error) {
+    console.log("Error while sending webhooks", error);
+  }
+}
+
 const fetchAllMessageWithTreads = async (req, res) => {
   /*
    1. request via web.conversations.history without any cursor
@@ -205,6 +221,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
               }
             }
           } catch (error) {
+            await sendWebhookToMattermost("Error occur during file sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
             console.log("Error occur during file sending -> ", error);
           }
         }
@@ -237,6 +254,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
             }
           }
         } catch (error) {
+          await sendWebhookToMattermost("Error occur during message sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
           console.log("Error occur during message sending -> ", error);
         }
       }
@@ -259,6 +277,7 @@ const fetchAllMessageWithTreads = async (req, res) => {
           }
         );
       } catch (error) {
+        await sendWebhookToMattermost("Error occur during reaction sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
         console.log("Error occur during reaction sending -> ", error);
       }
     }
@@ -274,8 +293,9 @@ const fetchAllMessageWithTreads = async (req, res) => {
     // res.status(200).json({ messages: allMessages, replies: allReplies });
     return;
   } catch (error) {
-    console.error('this is error -> ', error);
-    res.status(500).json({ messages: "Internal Server Error", error: error });
+    await sendWebhookToMattermost("Error occur during syncing of channel", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
+    console.error('Error occur during syncing of channel -> ', error);
+    // res.status(500).json({ messages: "Internal Server Error", error: error });
   }
 };
 
@@ -315,6 +335,7 @@ const sendReplyToMattermost = async (allReplies, rootId, allMembers, channelReco
                 }
               }
             } catch (error) {
+              await sendWebhookToMattermost("Error occur during thread file sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
               console.log("Error occur during thread file sending -> ", error);
             }
           }
@@ -343,6 +364,7 @@ const sendReplyToMattermost = async (allReplies, rootId, allMembers, channelReco
               }
             }
           } catch (error) {
+            await sendWebhookToMattermost("Error occur during thread message sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
             console.log("Error occur during thread message sending -> ", error);
           }
         }
@@ -363,8 +385,9 @@ const sendIsPinnedToMattermost = async (id, isEvent = false) => {
         Authorization: "Bearer " + ACCESSTOKEN,
       },
     });
-    console.log("Pin send successfuly", sendPinned);
+    console.log("Pin send successfuly");
   } catch (error) {
+    await sendWebhookToMattermost("Error occur during Pinned message sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
     console.log("Error occur during Pinned message sending -> ", error);
   }
   return;
@@ -379,8 +402,9 @@ const sendUnPinnedToMattermost = async (id) => {
         Authorization: "Bearer " + ACCESSTOKEN,
       },
     });
-    console.log("UnPined send successfuly", sendUnPinned);
+    console.log("UnPined send successfuly");
   } catch (error) {
+    await sendWebhookToMattermost("Error occur during UnPinned message sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
     console.log("Error occur during UnPinned message sending -> ", error);
   }
   return;
@@ -412,7 +436,9 @@ const removeReactionFromMattermost = async (event) => {
             Authorization: "Bearer " + ACCESSTOKEN,
           }
         });
+      console.log("Reaction removed successfully");
     } catch (error) {
+      await sendWebhookToMattermost("Error while removing reaction", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
       console.log("Error while removing reaction", error);
     }
   }
@@ -527,28 +553,28 @@ const indexesOf = (string, regex) => {
 const fetchFromSlack = async (file) => {
   return new Promise((resolve, reject) => {
     const filesFromSlack = [];
-    for (let i = 0; i < file.length; i++) {
-      try {
-
-      } catch (error) {
-
-      }
-      if (file[i].url_private_download && typeof (file[i].url_private_download) !== 'undefined') {
-        https.get(
-          file[i].url_private_download,
-          {
-            headers: { Authorization: "Bearer " + process.env.SLACK_USER_TOKEN },
-          }, async (res) => {
-            await filesFromSlack.push(res);
-            if (i === file.length - 1) {
-              resolve(filesFromSlack);
-            }
-          })
-      } else {
-        if (i === file.length - 1) {
-          resolve(filesFromSlack);
+    try {
+      for (let i = 0; i < file.length; i++) {
+        if (file[i].url_private_download && typeof (file[i].url_private_download) !== 'undefined') {
+          https.get(
+            file[i].url_private_download,
+            {
+              headers: { Authorization: "Bearer " + process.env.SLACK_USER_TOKEN },
+            }, async (res) => {
+              await filesFromSlack.push(res);
+              if (i === file.length - 1) {
+                resolve(filesFromSlack);
+              }
+            })
+        } else {
+          if (i === file.length - 1) {
+            resolve(filesFromSlack);
+          }
         }
       }
+    } catch (error) {
+      resolve(filesFromSlack);
+      console.log("Error while fetching attachment from slack");
     }
   })
 }
@@ -609,6 +635,7 @@ const postFilesToMettermost = async (
     console.log("Attachment Sent Successfully");
     return response;
   } catch (error) {
+    await sendWebhookToMattermost("Error while sending attachments", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
     console.log("Error, please have a look at ", error);
   }
 };
@@ -766,6 +793,7 @@ const sendRealTimeMessage = async (message, isReply, isReaction) => {
             },
           })
       } catch (error) {
+        await sendWebhookToMattermost("RT : Error occur during reaction sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
         console.log("RT : Error occur during reaction sending -> ", error);
       }
     }
@@ -786,6 +814,7 @@ const sendRealTimeMessage = async (message, isReply, isReaction) => {
           );
           console.log("RT : This is send file Response -> Sent Successfully");
         } catch (error) {
+          await sendWebhookToMattermost("RT : Error occur during file sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
           console.log("RT : Error occur during file sending -> ", error);
         }
       }
@@ -802,8 +831,9 @@ const sendRealTimeMessage = async (message, isReply, isReaction) => {
             source_post_id: message.ts
           }
         );
-        console.log("RT : This is singleMessageResponse ->  Sent Successfully", singleMessage);
+        console.log("RT : This is singleMessage Response -> Sent Successfully");
       } catch (error) {
+        await sendWebhookToMattermost("RT : Error occur during message sending", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
         console.log("RT : Error occur during message sending -> ", error);
       }
     }
@@ -822,7 +852,7 @@ const updateRealTimeMessage = async (ev) => {
     },
   });
   if (channelRecord && channelRecord.mattermostId && channelRecord.status === 'Completed') {
-    console.log("Update", ev);
+    console.log("Update Event", ev);
     if (ev.message.text === 'This message was deleted.') {
       await deleteRealTimeMessage(ev)
       return;
@@ -850,7 +880,8 @@ const updateRealTimeMessage = async (ev) => {
         );
         console.log("Message Updated Successfully");
       } catch (error) {
-        console.log("Error While Updating Message", error);
+        await sendWebhookToMattermost("RT : Error While Updating Message", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
+        console.log("RT : Error While Updating Message", error);
       }
       return;
     }
@@ -866,7 +897,7 @@ const deleteRealTimeMessage = async (ev) => {
     },
   });
   if (channelRecord && channelRecord.mattermostId && channelRecord.status === 'Completed') {
-    console.log("delete", ev);
+    console.log("deleted Event", ev);
     let rootId = ev.previous_message?.ts || null;
     let mattermostPostId = null;
     let allMembers = globalAllMembers;
@@ -884,7 +915,8 @@ const deleteRealTimeMessage = async (ev) => {
       );
       console.log("Message deleted Successfully");
     } catch (error) {
-      console.log("Error While deleting Message", error);
+      await sendWebhookToMattermost("RT : Error While deleting Message", error.config.url, JSON.stringify(error.config.data), JSON.stringify(error.response.data));
+      console.log("RT : Error While deleting Message", error);
     }
     return;
   }
